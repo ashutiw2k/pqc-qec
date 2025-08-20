@@ -117,3 +117,28 @@ This section explains what each module in the `pqcqec` package does so new users
 ### noise
 - `pqcqec/noise/simple_noise.py`: Noisy gate model for PennyLane simulations.
   - `PennylaneNoisyGates`: Applies ideal gates then injects random RX/RZ over-rotations per wire; supports `X/Z/CX/CZ/H` plus parameterized `RX/RZ` for PQC layers. Noise magnitudes are configurable; exposes `apply_gate(gate_name, wires, angle=None)` to route tokens to the correct noisy/parametrized implementation.
+
+## scripts Folder Details
+
+Utilities to run experiments, parallelize tokenization, and visualize fidelity.
+
+- `scripts/train_tokenize_circuits_mp.py`: Parallel training + tokenization pipeline across seeds.
+  - Purpose: For each `(qubits, gates)` configuration, runs `pqc_experiment_runner` over multiple seeds in parallel, then saves high‑fidelity circuit tokens and PQC parameters to per‑seed JSON files.
+  - Key functions:
+    - `create_circuit_from_ops(ops_list, num_qubits)`: Build a Qiskit `QuantumCircuit` from token tuples `(op, wires, params)` and return its object (used to serialize QASM via `qasm2.dumps`).
+    - `deep_tuple(x)`: Recursively converts nested lists/tuples to tuples (helps hashing/comparison and stable JSON content).
+    - `process_seed(args)`: Worker function for a single seed; calls `pqc_experiment_runner`, checks fidelity threshold (0.95), returns a status tuple: `'success' | 'poor_fidelity' | 'skipped' | 'error'` with payload.
+    - `main()`: Parses CLI, iterates over qubit/gate ranges, creates output dir `figure_output/{qubits}q_{gates}g_{gate_blocks}blk_data`, writes `config.json`, loads/updates `poor_fid_params.json`, schedules `(seed, ...)` tasks, executes a multiprocessing pool (half of available cores), and consolidates results. On success writes `{seed}.json` with:
+      - `seed`, `fidelity`, `pqc_params` (list), `base_circuit_tokens`, `pqc_circuit_tokens`, and QASM strings for both circuits.
+      - On poor fidelity, appends `(qubit, gate, seed, fidelity, pqc_params_as_tuples)` to `poor_fid_params.json`.
+  - Important CLI flags (via `utils/args.py`):
+    - Ranges: `--qubit_range`, `--gate_range`; layout: `--gate_blocks`, `--pqc_blocks`.
+    - Training: `--epochs`, `--num_data`, `--num_test`, `--batch`, `--gpu`, `--gate_dist`.
+    - Output/control: `--figure_output`, `--force` (purge output dir before run), `--redo` (retrain only the specified `--seed`).
+
+- `scripts/plot_fidelity_experiement.py`: Single‑run training and fidelity plot.
+  - Purpose: Runs one experiment using the first values in `--qubit_range` and `--gate_range`, retrieves batched fidelities from `pqc_experiment_runner(return_fidelity=True)`, and saves a comparison plot.
+  - Flow:
+    - Parse CLI (qubit/gate ranges, `gate_blocks`, `pqc_blocks`, training sizes, `batch`, `seed`, `figure_output`, `gpu`, `gate_dist`).
+    - Run experiment and obtain `(fidelity_noisy, fidelity_pqc)` arrays.
+    - Plot both series using Matplotlib and save to `figure_output/Fidelity_{q}q_{g}g_seed{seed}.png`.
