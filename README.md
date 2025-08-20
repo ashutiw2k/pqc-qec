@@ -33,6 +33,7 @@ pip install --upgrade pennylane pennylane-catalyst qiskit[visualization] jax opt
 - **data**: JSON datasets used for experiments.
   - `data/json_data/3q_10g_5blk_data`: `config.json`, `0.json`, `1.json`, `2.json`, `3.json`, `4.json`, `5.json`, `poor_fid_params.json`.
   - `data/json_data/10q_50g_10blk_data`: `config.json`, `0.json`, `4.json`, `7.json`, `8.json`, `9.json`, `poor_fid_params.json`.
+  - `data/json_data/5q_20g_10blk_data`: `config.json`, `poor_fid_params.json`, and multiple per-seed results like `1.json`, `2.json`, `3.json`, ...
 - **plots**: Generated figures and results.
   - `Fidelity_3q_10g_seed5.png`
 - **pqcqec**: Core Python package for circuits, training, simulation, experiments, utils, and noise (source files only; caches omitted).
@@ -46,6 +47,7 @@ pip install --upgrade pennylane pennylane-catalyst qiskit[visualization] jax opt
   - `pqcqec/noise`: `__init__.py`, `simple_noise.py`
 - **scripts**: Utility scripts for training and plotting.
   - `plot_fidelity_experiement.py`
+  - `train_tokenize_circuits.py`
   - `train_tokenize_circuits_mp.py`
 - **testnotebooks**: Example and exploratory Jupyter notebooks.
   - `jax/JAX_CPU_NewNoiseModel.ipynb`
