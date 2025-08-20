@@ -49,7 +49,7 @@ def test_pqc_parameterized_rotation_executes():
     @qml.qnode(dev)
     def circuit(theta):
         # Start in |0>, apply RX(theta); when theta=pi, expect |1>
-        n.apply_gate("rx", 0, angle=theta)
+        n.apply_gate("rx", [0], angle=theta)
         return qml.state()
 
     state = circuit(jnp.pi)
