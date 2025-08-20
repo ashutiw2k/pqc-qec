@@ -31,7 +31,7 @@ Now, install the following packages.
 
 ```bash
 $ pip install --upgrade pip
-$ pip install --upgrade pennylane pennylane-catalyst qiskit[visualization] jax optax torch jupyter
+$ pip install --upgrade pennylane pennylane-catalyst qiskit[visualization] jax optax torch jupyter pytest
 ```
 
 ### Test if the environment is set up correctly
