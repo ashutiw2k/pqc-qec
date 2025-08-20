@@ -76,5 +76,24 @@ def generate_random_circuit(num_qubits: int, num_gates: int, gate_dist:dict=None
     raise Exception(f"Backend {backend} not supported")
 
 
+def create_qiskit_circuit_from_ops(ops_list, num_qubits):
+    """
+    Creates a Qiskit QuantumCircuit from a list of operations.
+
+    Args:
+        ops_list (list): List of operations in the format (op, params, qubits).
+        num_qubits (int): Number of qubits in the circuit.
+
+    Returns:
+        QuantumCircuit: The constructed quantum circuit.
+    """
+
+    circuit = QuantumCircuit(num_qubits)
+    for op, qubits, params in ops_list:
+        if hasattr(circuit, op):
+            getattr(circuit, op)(*params, *qubits)
+        else:
+            raise ValueError(f"Unsupported operation: {op}")
+    return circuit
 
 

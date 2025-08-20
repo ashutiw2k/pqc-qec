@@ -12,30 +12,11 @@ from qiskit import QuantumCircuit
 from qiskit.qasm2 import dumps
 
 from pqcqec.experiment.pqc_experiment import pqc_experiment_runner
+from pqcqec.circuits.generate import create_qiskit_circuit_from_ops
+
 
 
 from pqcqec.utils.args import get_all_valid_args, parse_args
-
-def create_circuit_from_ops(ops_list, num_qubits):
-    """
-    Creates a Qiskit QuantumCircuit from a list of operations.
-
-    Args:
-        ops_list (list): List of operations in the format (op, params, qubits).
-        num_qubits (int): Number of qubits in the circuit.
-
-    Returns:
-        QuantumCircuit: The constructed quantum circuit.
-    """
-
-    circuit = QuantumCircuit(num_qubits)
-    for op, qubits, params in ops_list:
-        if hasattr(circuit, op):
-            getattr(circuit, op)(*params, *qubits)
-        else:
-            raise ValueError(f"Unsupported operation: {op}")
-    return circuit
-
 
 def deep_tuple(x):
     """
@@ -113,8 +94,8 @@ def process_seed(args):
             'pqc_params': pqc_params.tolist(),
             'base_circuit_tokens': base_circ,
             'pqc_circuit_tokens': pqc_circ,
-            'base_circuit_qasm': dumps(create_circuit_from_ops(base_circ, qubit)),
-            'pqc_circuit_qasm': dumps(create_circuit_from_ops(pqc_circ, qubit)),
+            'base_circuit_qasm': dumps(create_qiskit_circuit_from_ops(base_circ, qubit)),
+            'pqc_circuit_qasm': dumps(create_qiskit_circuit_from_ops(pqc_circ, qubit)),
         }
         # Instead of writing the file here, we return the data to the main process
         return ('success', seed, (output_file, token_data))
