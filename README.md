@@ -4,11 +4,17 @@ Learning Parameterized Quantum Circuits for Quantum Error Correction.
 
 ## Setting Up the environment
 
+> Note - A `requirements.txt` file will soon be added, until then please use the following commands. 
+
+### Git
+Run the appropriate git command to clone this repository. 
+
+### Python Virtual Environment
 Linux (Ubuntu):
 
 ```bash
-virtualenv .venv
-source .venv/bin/activate
+$ virtualenv .venv
+$ source .venv/bin/activate
 ```
 
 Ensure your virtual environment is activated (you may have to install `visrtualenv` using `sudo update && sudo upgrade && apt install virtualenv`)
@@ -16,16 +22,59 @@ Ensure your virtual environment is activated (you may have to install `visrtuale
 MacOS:
 
 ```bash
-python -m virtualenv .venv
-source .venv/bin/activate
+$ python -m virtualenv .venv
+$ source .venv/bin/activate
 ```
 
-Now, install dependencies
+### Installing the packages
+Now, install the following packages. 
 
 ```bash
-pip install --upgrade pip
-pip install --upgrade pennylane pennylane-catalyst qiskit[visualization] jax optax torch jupyter
+$ pip install --upgrade pip
+$ pip install --upgrade pennylane pennylane-catalyst qiskit[visualization] jax optax torch jupyter
 ```
+
+### Test if the environment is set up correctly
+While in your virtual environment, run the following command:
+```bash
+$ time python scripts/train_tokenize_circuits_mp.py -q 5 -g 20 -k 10 -n 5000 -e 5 -a 20 -t 20 --seed 25 -o nogit/json_data/
+```
+
+The output should start with something like this:
+
+```text
+Using device: cpu
+Final Config after parsing arguments:
+{'config': None, 'qubit_range': [5], 'gate_range': [20], 'pqc_blocks': 1, 'gate_blocks': 10, 'figure_output': 'nogit/json_data/', 'epochs': 5, 'num_data': 5000, 'num_test': 20, 'seed': '25', 'gate_dist': None, 'noise_dist': None, 'gpu': False, 'batch': 20, 'force': False, 'redo': False, 'qubits': [5], 'gates': [20], 'device': device(type='cpu')}
+
+Generating atmost 25 set of tokens for Qubits: 5, Gates: 20, Gate Blocks: 10
+Config file saved to nogit/json_data/5q_20g_10blk_data/config.json
+
+Starting parallel processing with 7 cores...
+```
+
+After the script has run successfully, you should be able to see something like this:
+
+```text
+...
+PQC Circuit Fidelity good for seed 22 : 0.977056622505188
+Poor PQC Circuit Fidelity for seed 25 : 0.9336086511611938
+Poor PQC Circuit Fidelity for seed 24 : 0.94271320104599
+
+7 circuits not saved for the following poor fidelity parameters:
+ - Qubits: 5, Gates: 20, Seed: 0, PQC Fidelity: 0.933001697063446
+ - Qubits: 5, Gates: 20, Seed: 5, PQC Fidelity: 0.9121567606925964
+ ...
+ ```
+
+There should also be json files in a folder *nogit/json_data/5q_20g_10blk_data/* - with all the fields populated. 
+
+You can also confirm by running the following:
+
+```bash
+$ PYTHONPATH="${PYTHONPATH}:${PWD}" pytest -vv
+```
+
 
 ## Repository Structure
 
