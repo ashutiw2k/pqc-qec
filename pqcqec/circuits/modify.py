@@ -2,7 +2,10 @@ from qiskit import QuantumCircuit
 import pennylane as qml
 
 def tokenize_qiskit_circuit(circuit:QuantumCircuit) -> list:
-    """Tokenizes a Qiskit circuit into a list of gate names and qubit indices."""
+    """
+    Tokenizes a Qiskit circuit into a list of gate names and qubit indices.
+    Returns a list of tokens, where each token is a tuple (gate_name, qubits, params).
+    """
     tokens = []
     for instruction in circuit.data:
         gate_name = instruction.operation.name
