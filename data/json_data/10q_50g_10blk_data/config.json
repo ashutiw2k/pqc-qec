@@ -1,0 +1,1 @@
+{"config": null, "qubit_range": [10], "gate_range": [50], "pqc_blocks": 1, "gate_blocks": 10, "figure_output": "data/json_data/", "epochs": 5, "num_data": 5000, "num_test": 50, "seed": "10", "gate_dist": null, "noise_dist": null, "gpu": false, "batch": 20, "force": false, "redo": false, "qubits": [10], "gates": [50], "device": "cpu"}
