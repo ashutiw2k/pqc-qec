@@ -40,7 +40,7 @@ def test_mse_complex_loss_and_aligned():
     assert abs(got - expected) < 1e-7
 
     # Phase-invariant: a and e^{iθ} a should produce ~0 aligned loss
-    theta = math.pi / 3
+    theta = jnp.pi / 3
     phase = jnp.exp(1j * jnp.array(theta))
     a_phased = a * phase
     aligned_loss = float(jax_mse_complex_loss_aligned(a, a_phased))
