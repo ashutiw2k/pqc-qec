@@ -62,7 +62,7 @@ This section explains what each module in the `pqcqec` package does so new users
 ### Top-level
 - `pqcqec/__init__.py`: Marks the directory as a Python package.
 
-### circuits
+### `circuits`
 - `pqcqec/circuits/generate.py`: Utilities to synthesize random circuits.
   - `generate_random_circuit_qiskit(num_qubits, num_gates, gate_dist)`: Returns a Qiskit `QuantumCircuit` by sampling gates according to `gate_dist`.
   - `generate_random_circuit_pennylane(...)`: Returns a list of PennyLane operations constructed from sampled gates.
@@ -74,7 +74,7 @@ This section explains what each module in the `pqcqec` package does so new users
 - `pqcqec/circuits/pqc_circuits.py`: Parametrized PQC building blocks.
   - `pennylane_PQC_RZRXRZ_unique(num_qubits, params)`: Applies one layer per qubit of RZ → RX → RZ using a flat parameter vector of length `3 * num_qubits`.
 
-### models
+### `models`
 - `pqcqec/models/pqc_models.py`: Trainable PQC models that interleave learned gates with a target circuit under noise.
   - `StateInputModelInterleavedPQCModel`:
     - Initializes with a tokenized uncompensated circuit `circuit_ops`, `num_qubits`, a `noise_model` (see `noise/simple_noise.py`), and layout controls `pqc_blocks`, `gate_blocks`.
@@ -82,7 +82,7 @@ This section explains what each module in the `pqcqec` package does so new users
     - Parameters shape: `(ceil(num_gates/gate_blocks) * pqc_blocks, num_qubits, 3)`; trained via JAX/Optax.
     - Methods: `run_model_batch` (batched forward via `vmap`), `draw_mpl` (matplotlib circuit drawing), `get_circuit_tokens` (returns original tokens interleaved with PQC parameter tokens).
 
-### training
+### `training`
 - `pqcqec/training/jax_train_functions.py`: Training loop utilities using JAX + Optax.
   - `train_pqc_model(model, dataloader, optimizer, schedule, main_loss_fn, epochs)`: Per-epoch loop with a JIT’d `update_step` computing loss, gradients, parameter updates, and per-batch fidelity. Displays running metrics via `tqdm` and prints epoch summaries.
 - `pqcqec/training/jax_loss_functions.py`: Differentiable JAX loss and fidelity functions.
@@ -91,12 +91,12 @@ This section explains what each module in the `pqcqec` package does so new users
   - Phase-invariant and complex MSE losses: `jax_mse_complex_loss`, `jax_mse_complex_loss_aligned`, `jax_l2_loss_ignore_global_phase`.
   - Alternatives: `jax_fidelity_loss`, `jax_mixed_fidelity_loss`, `jax_density_trace_loss`, `jax_hilbert_schmidt_density_loss`.
 
-### simulate
+### `simulate`
 - `pqcqec/simulate/simulate.py`: Data generation and noisy circuit execution.
   - `get_input_data(num_qubits, num_vals, seed)`: Samples random complex vectors and normalizes to valid quantum states.
   - `run_circuit_with_noise_model(circuit_ops, input_state, noise_model, num_qubits, device, batched)`: Builds a PennyLane circuit that embeds `input_state`, applies tokenized gates through the provided `noise_model`, and returns the final state (supports batched vmap execution).
 
-### experiment
+### `experiment`
 - `pqcqec/experiment/pqc_experiment.py`: End-to-end experiment orchestration.
   - `pqc_experiment_runner(...)`:
     - Seeds PRNGs; generates train/test data via `simulate.get_input_data`.
@@ -106,7 +106,7 @@ This section explains what each module in the `pqcqec` package does so new users
     - Defines a warmup + cosine-restart learning-rate schedule and an Optax optimizer chain.
     - Trains the model; evaluates batched fidelities on test data vs. noisy and PQC outputs; returns metrics and final parameters.
 
-### utils
+### `utils`
 - `pqcqec/utils/constants.py`: Common mappings/constants.
   - Gate maps for Qiskit/PennyLane (`QISKIT_GATES`, `PENNYLANE_GATES`), arity (`QUBITS_FOR_GATES`), and placeholders for PQC/model registries.
 - `pqcqec/utils/args.py`: Flexible CLI/config handling for experiments.
@@ -114,11 +114,11 @@ This section explains what each module in the `pqcqec` package does so new users
 - `pqcqec/utils/jax_utils.py`: Lightweight dataset/dataloader for JAX arrays.
   - `JAXStateDataset` (indexable array wrapper) and `JAXDataLoader` (permutes indices, batches, stacks tensors, supports `drop_last`).
 
-### noise
+### `noise`
 - `pqcqec/noise/simple_noise.py`: Noisy gate model for PennyLane simulations.
   - `PennylaneNoisyGates`: Applies ideal gates then injects random RX/RZ over-rotations per wire; supports `X/Z/CX/CZ/H` plus parameterized `RX/RZ` for PQC layers. Noise magnitudes are configurable; exposes `apply_gate(gate_name, wires, angle=None)` to route tokens to the correct noisy/parametrized implementation.
 
-## scripts Folder Details
+## `scripts` Folder Details
 
 Utilities to run experiments, serialize tokenized circuits/parameters, and visualize fidelity.
 
