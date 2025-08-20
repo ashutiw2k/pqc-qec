@@ -49,7 +49,7 @@ def test_mse_complex_loss_and_aligned():
 
 def test_l2_loss_ignore_global_phase():
     psi = jnp.array([0.5 + 0.5j, -0.5 + 0.5j])
-    theta = math.pi / 7
+    theta = jnp.pi / 7
     phase = jnp.exp(1j * jnp.array(theta))
     phi = psi * phase
     loss = float(jax_l2_loss_ignore_global_phase(psi, phi))
