@@ -143,13 +143,13 @@ ARG_DEFINITIONS = {
     },
     'gate_dist': {
         'flags': ['--gate_dist', '-d'],
-        'type': dict,
+        'type': json.loads,
         'nargs': '?',
         'help': 'Gate Distribution in Random Circuit (optional)'
     },
     'noise_dist': {
         'flags': ['--noise_dist', '-z'],
-        'type': dict,
+        'type': json.loads,
         'nargs': '?',
         'help': 'Noise Distribution in Circuit (optional)'
     },
