@@ -355,6 +355,9 @@ def main():
             print(f"\nStarting parallel processing with {num_processes} cores (system={system_cpu_count}, configured={configured_mp_cores})...")
 
             results_iter = None
+            # Use the 'spawn' context for multiprocessing to ensure cross-platform compatibility (especially on Windows).
+            # Note: 'spawn' is slower than 'fork' on Unix systems, but 'fork' is not available on Windows.
+            # If running only on Unix and performance is critical, consider using the default context ('fork').
             pool = multiprocessing.get_context("spawn").Pool(processes=num_processes)
             try:
                 # Use imap_unordered to stream results; provide a reasonable chunksize to reduce overhead
