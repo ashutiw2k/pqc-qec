@@ -9,7 +9,6 @@ try:
 except Exception:
     psutil = None
 from datetime import datetime
-import os
 
 
 def human_bytes(n):
