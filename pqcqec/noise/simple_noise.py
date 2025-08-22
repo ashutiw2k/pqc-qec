@@ -2,6 +2,8 @@ import jax
 import jax.numpy as jnp
 import pennylane as qml
 import numpy as np
+from numpy.random import RandomState
+
 
 class PennylaneNoisyGates:
     def __init__(
@@ -25,8 +27,12 @@ class PennylaneNoisyGates:
         self.z_noise_max = z_rad + self.delta_z
         self.z_noise_min = z_rad - self.delta_z
 
-        self.seed = seed
-        self.x_key, self.z_key = jax.random.split(jax.random.PRNGKey(seed))
+        # self.seed = seed
+        # self.x_key, self.z_key = jax.random.split(jax.random.PRNGKey(seed))
+        if seed is not None:
+            self.rng = RandomState(seed)
+        else:
+            self.rng = RandomState()
 
         self.noisy_gates = {
             "X": self.noisyX, "PauliX": self.noisyX, "x": self.noisyX,
@@ -65,8 +71,8 @@ class PennylaneNoisyGates:
             raise ValueError(f"Gate {gate_name} is not supported by the noisy gates model.")    
 
     def apply_noise(self, wires):
-        x_noise = np.random.uniform(size=(len(wires),), low=self.x_noise_min, high=self.x_noise_max)
-        z_noise = np.random.uniform(size=(len(wires),), low=self.z_noise_min, high=self.z_noise_max)
+        x_noise = self.rng.uniform(size=(len(wires),), low=self.x_noise_min, high=self.x_noise_max)
+        z_noise = self.rng.uniform(size=(len(wires),), low=self.z_noise_min, high=self.z_noise_max)
 
         for i, wire in enumerate(wires):
             # Apply the noisy X gate with random over-rotation
