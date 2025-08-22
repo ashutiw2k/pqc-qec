@@ -193,6 +193,13 @@ ARG_DEFINITIONS = {
         'type': str2bool,
         'help': 'Redo training and recreate the output file for the specified parameters and seed (use --redo or --redo=true/false)',
         'default': False
+    },
+    'mp_cores': {
+        'flags': ['--mp_cores', '--mp-cores'],
+        'type': int,
+        'nargs': '?',
+        'help': 'Number of CPU cores for multiprocessing. 0=auto, -1=all cores (default: 0)',
+        'default': 0
     }
 }
 

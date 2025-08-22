@@ -1,0 +1,75 @@
+Analyzing: nogit/json_data/mp_stats.json
+
+===== MP Stats Analysis =====
+Created: 2025-08-22T04:02:00.413983Z
+Host: Ashutoshs-MacBook-Pro.local
+Platform: {'system': 'Darwin', 'release': '24.6.0', 'python': '3.13.2'}
+Config summary: {'qubits': [5], 'gates': [20], 'gate_blocks': 10, 'pqc_blocks': 1, 'epochs': 5, 'num_data': 5000, 'num_test': 20, 'batch': 20, 'gate_dist': None, 'noise_dist': None, 'gpu': False, 'seed_max': '1000', 'redo': False, 'force': True}
+
+Safety factors:
+ - Parent objects: x1.5
+ - Worker RSS: x1.3
+RAM context:
+ - System RAM: 48.00 GB
+ - Planning utilization: 85%
+
+Runs summary:
+ - Executed: 1001
+ - Good Fidelity: 858
+ - Poor Fidelity: 143
+ - Skipped: 0
+ - Errors: 0
+
+Timing:
+ - Avg wall time/run: 12.246s (12s)
+ - Median: 12.441s
+ - Min/Max: 6.861s / 14.219s
+ - Sum wall time (runs): 12258.7s (3h 24m 19s)
+ - Sum wall reported (overall): 12258.7s
+ - Total elapsed (script): 976.8s (16m 17s)
+Workers:
+ - System CPU count: 14
+ - Configured mp_cores: -1
+ - Resolved workers: 14
+ - Observed effective parallelism: 12.55×
+
+CPU deltas (per executed run):
+ - Avg user: 11.370s
+ - Avg system: 0.404s
+
+Memory/IO:
+ - Peak ru_maxrss: 1331052544 KiB_on_linux_bytes_on_macos (~1269.39 GiB if Linux, ~1.24 GiB if macOS)
+ - Avg RSS delta/run: 13.32 MB
+
+Fidelity:
+ - Avg fidelity: 0.967283
+ - Median fidelity: 0.989328
+ - Min/Max fidelity: 0.257280 / 1.000000
+
+Python objects (parent process) estimate:
+ - Metadata footprint: 4.54 KB
+ - Avg per-run object size: 3.90 KB
+ - Current total objects size: 3.82 MB (safe ~ 5.72 MB)
+
+
+Scaling estimates (sequential) based on multiples of seed:
+ - Base seed: 1000
+   seed=  10000: 1d 10h 1m 17s (34.02 h), est. peak RSS ~ 1.19 GB (safe ~ 1.55 GB), est. parent objects ~ 38.08 MB (safe ~ 57.12 MB)
+   seed=  25000: 3d 13h 2m 55s (85.05 h), est. peak RSS ~ 1.19 GB (safe ~ 1.55 GB), est. parent objects ~ 95.18 MB (safe ~ 142.77 MB)
+   seed=  50000: 7d 2h 5m 37s (170.09 h), est. peak RSS ~ 1.19 GB (safe ~ 1.55 GB), est. parent objects ~ 190.36 MB (safe ~ 285.54 MB)
+   seed= 100000: 14d 4h 11m 1s (340.18 h), est. peak RSS ~ 1.19 GB (safe ~ 1.55 GB), est. parent objects ~ 380.71 MB (safe ~ 571.06 MB)
+   seed= 200000: 28d 8h 21m 50s (680.36 h), est. peak RSS ~ 1.19 GB (safe ~ 1.55 GB), est. parent objects ~ 761.40 MB (safe ~ 1.12 GB)
+
+Scaling estimates (parallel, using observed throughput):
+   seed=  10000: 2h 42m 39s (2.71 h) @ ~12.6×, est. peak RSS ~ 16.64 GB (safe ~ 21.63 GB) (14 procs), est. parent objects ~ 38.08 MB (safe ~ 57.12 MB), rec workers <= 14
+   seed=  25000: 6h 46m 36s (6.78 h) @ ~12.6×, est. peak RSS ~ 16.64 GB (safe ~ 21.63 GB) (14 procs), est. parent objects ~ 95.18 MB (safe ~ 142.77 MB), rec workers <= 14
+   seed=  50000: 13h 33m 10s (13.55 h) @ ~12.6×, est. peak RSS ~ 16.64 GB (safe ~ 21.63 GB) (14 procs), est. parent objects ~ 190.36 MB (safe ~ 285.54 MB), rec workers <= 14
+   seed= 100000: 1d 3h 6m 20s (27.11 h) @ ~12.6×, est. peak RSS ~ 16.64 GB (safe ~ 21.63 GB) (14 procs), est. parent objects ~ 380.71 MB (safe ~ 571.06 MB), rec workers <= 14
+   seed= 200000: 2d 6h 12m 39s (54.21 h) @ ~12.6×, est. peak RSS ~ 16.64 GB (safe ~ 21.63 GB) (14 procs), est. parent objects ~ 761.40 MB (safe ~ 1.12 GB), rec workers <= 14
+
+Stats file size estimates (linear scale w.r.t runs):
+   seed=  10000: ~11.57 MB
+   seed=  25000: ~28.91 MB
+   seed=  50000: ~57.82 MB
+   seed= 100000: ~115.64 MB
+   seed= 200000: ~231.28 MB

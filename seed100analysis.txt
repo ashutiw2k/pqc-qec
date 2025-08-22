@@ -1,0 +1,44 @@
+Analyzing: nogit/json_data/mp_stats.json
+
+===== MP Stats Analysis =====
+Created: 2025-08-22T03:31:42.973990Z
+Host: Ashutoshs-MacBook-Pro.local
+Platform: {'system': 'Darwin', 'release': '24.6.0', 'python': '3.13.2'}
+Config summary: {'qubits': [5], 'gates': [20], 'gate_blocks': 10, 'pqc_blocks': 1, 'epochs': 5, 'num_data': 5000, 'num_test': 20, 'batch': 20, 'gate_dist': None, 'noise_dist': None, 'gpu': False, 'seed_max': '100', 'redo': False, 'force': True}
+
+Runs summary:
+ - Executed: 101
+ - Good Fidelity: 82
+ - Poor Fidelity: 19
+ - Skipped: 0
+ - Errors: 0
+
+Timing:
+ - Avg wall time/run: 12.431s (12s)
+ - Median: 12.386s
+ - Min/Max: 7.550s / 14.225s
+ - Sum wall time (runs): 1255.6s (20m 56s)
+ - Sum wall reported (overall): 1255.6s
+ - Total elapsed (script): 97.9s (1m 38s)
+
+CPU deltas (per executed run):
+ - Avg user: 11.289s
+ - Avg system: 0.480s
+
+Memory/IO:
+ - Peak ru_maxrss: 799113216 KiB_on_linux_bytes_on_macos (~762.09 GiB if Linux, ~0.74 GiB if macOS)
+ - Avg RSS delta/run: 51.10 MB
+
+Fidelity:
+ - Avg fidelity: 0.971040
+ - Median fidelity: 0.989079
+ - Min/Max fidelity: 0.502980 / 1.000000
+
+
+Scaling estimates (sequential) based on multiples of seed:
+ - Base seed: 100
+   seed=   1000: 3h 27m 24s (3.46 h)
+   seed=   2500: 8h 38m 11s (8.64 h)
+   seed=   5000: 17h 16m 9s (17.27 h)
+   seed=  10000: 1d 10h 32m 5s (34.53 h)
+   seed=  20000: 2d 21h 3m 57s (69.07 h)
