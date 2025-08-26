@@ -64,7 +64,8 @@ def generate_random_circuit(num_qubits: int, num_gates: int, gate_dist:dict=None
         random.seed(seed)
 
     if gate_dist is None:
-        gate_dist = {gate:1/len(QISKIT_GATES) for gate in QISKIT_GATES}
+        gates = ['x', 'z', 'h', 'cx', 'cz']
+        gate_dist = {gate:1/len(gates) for gate in gates}
 
     if backend == 'qiskit':
         return generate_random_circuit_qiskit(num_qubits, num_gates, gate_dist)
