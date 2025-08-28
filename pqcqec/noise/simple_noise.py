@@ -10,8 +10,8 @@ class PennylaneNoisyGates:
         self,
         x_rad: float = jnp.pi / 30,
         z_rad: float = jnp.pi / 30,
-        delta_x: float = 5,
-        delta_z: float = 5,
+        delta_x: float = 0,
+        delta_z: float = 0,
         seed: int = 0
     ):
         # Store the *nominal* over-rotation angles
