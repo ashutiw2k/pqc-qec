@@ -28,6 +28,13 @@ COUNTER2="${3-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PY_SCRIPT="$SCRIPT_DIR/train_tokenize_circuits_mp.py"
 
+# Optional sleep (seconds) between runs for a simple cool-down.
+# Override via env var: CLEANUP_SLEEP=5 scripts/run_train_tokenize_seed_range.sh ...
+CLEANUP_SLEEP="${CLEANUP_SLEEP:-2}"
+
+# Summary log for multi-run timings (in current working directory)
+LOG_FILE="mutli-run-summary.log"
+
 # Basic validations
 if [[ ! -f "$CONFIG_PATH" ]]; then
   echo "Error: config file not found: $CONFIG_PATH" >&2
@@ -66,17 +73,52 @@ echo
 FAILS=0
 TOTAL=0
 
-for (( seed = START; seed <= END; seed++ )); do
+# Initialize log with a header for this session
+{
+  echo "=== $(date '+%Y-%m-%d %H:%M:%S') | config=$CONFIG_PATH | range=$START..$END ==="
+  echo "seed,duration_seconds,status"
+} >> "$LOG_FILE"
+
+for (( seed = START; seed <= END; seed+=SCALE )); do
   ((TOTAL++))
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] Running seed $seed ..."
-  # --force=no ensures only this seed is processed in the MP script
-  if ! python -u "$PY_SCRIPT" --config "$CONFIG_PATH" --seed "$seed" --force=no; then
+  # --force=no ensures no seed is reprocessed in the MP script
+  start_ts=$(date +%s)
+  python -u "$PY_SCRIPT" --config "$CONFIG_PATH" --seed "$seed" --force=no
+  rc=$?
+  end_ts=$(date +%s)
+  duration=$(( end_ts - start_ts ))
+
+  if (( rc != 0 )); then
     echo "  -> Failed for seed $seed" >&2
     ((FAILS++))
+    status="fail"
+  else
+    status="success"
+  fi
+
+  echo "  -> Took ${duration}s"
+  echo "$seed,$duration,$status" >> "$LOG_FILE"
+
+  # Lightweight cleanup between runs (except after the last one)
+  if (( seed < END )); then
+    echo "  -> Cleanup: syncing, optional cache purge, then sleep $CLEANUP_SLEEP s"
+    # Flush filesystem buffers if available
+    if command -v sync >/dev/null 2>&1; then
+      sync || true
+    fi
+    # Best-effort cache purge on macOS if available (no sudo)
+    if [[ "${OSTYPE:-}" == darwin* ]] && command -v purge >/dev/null 2>&1; then
+      purge || true
+    fi
+    # Best-effort Linux page cache drop if writable without sudo
+    if [[ -w /proc/sys/vm/drop_caches ]]; then
+      (echo 3 > /proc/sys/vm/drop_caches) 2>/dev/null || true
+    fi
+    sleep "$CLEANUP_SLEEP"
   fi
 done
 
 echo
 echo "Completed: $TOTAL runs; Failures: $FAILS"
 exit $(( FAILS > 0 ? 1 : 0 ))
-

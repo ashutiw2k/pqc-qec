@@ -131,6 +131,7 @@ def process_seed(args):
             num_data=config['num_data'],
             num_test=config['num_test'],
             gate_dist=config['gate_dist'],
+            noise_dist=config['noise_dist'],
             gpu=config['gpu'],
             seed=seed,
             batch_size=config['batch']
