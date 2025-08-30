@@ -200,6 +200,14 @@ ARG_DEFINITIONS = {
         'nargs': '?',
         'help': 'Number of CPU cores for multiprocessing. 0=auto, -1=all cores (default: 0)',
         'default': 0
+    },
+    'uncomp': {
+        'flags': ['--uncomp'],
+        'nargs': '?',
+        'const': True,
+        'type': str2bool,
+        'help': 'Determine whether to add uncomputation to the circuit (use --uncomp or --uncomp=true/false)',
+        'default': True
     }
 }
 

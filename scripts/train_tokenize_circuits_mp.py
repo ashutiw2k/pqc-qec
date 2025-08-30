@@ -134,7 +134,8 @@ def process_seed(args):
             noise_dist=config['noise_dist'],
             gpu=config['gpu'],
             seed=seed,
-            batch_size=config['batch']
+            batch_size=config['batch'],
+            add_uncomputation=config['uncomp']
         )
         gc.collect()
     except Exception as e:
@@ -204,7 +205,8 @@ def process_seed(args):
 def main():
     # Parse command line arguments
     required_args = ['qubit_range', 'gate_range', 'gate_blocks', 'pqc_blocks', 'epochs', 'config', 'seed',
-                     'num_data', 'num_test', 'gate_dist', 'gpu', 'batch', 'figure_output', 'noise_dist', 'force', 'redo', 'mp_cores']
+                     'num_data', 'num_test', 'gate_dist', 'gpu', 'batch', 'figure_output', 'noise_dist', 
+                     'force', 'redo', 'mp_cores', 'uncomp']
     script_description = 'Train and Tokenize Circuits with error correcting interleaved PQC up for `seed` number of circuits per qubit, gate configuration.'
 
     args = parse_args(required_args, script_description=script_description)
@@ -453,7 +455,7 @@ def main():
             # Per-config stats file under this data_dir
             config_end = time.perf_counter()
             cfg_stats = {
-                'created_at': datetime.utcnow().isoformat() + 'Z',
+                'created_at': datetime.now().isoformat() + 'Z',
                 'host': platform.node(),
                 'platform': {
                     'system': platform.system(),
