@@ -45,6 +45,7 @@ class PennylaneNoisyGates:
         self.pqc_gates = {
             "RX": self.pqcRX, "rx": self.pqcRX,
             "RZ": self.pqcRZ, "rz": self.pqcRZ,
+            "RY": self.pqcRY, "ry": self.pqcRY
         }
 
         self.X = self.noisyX
@@ -59,6 +60,7 @@ class PennylaneNoisyGates:
 
         self.RX = self.pqcRX
         self.RZ = self.pqcRZ
+        self.RY = self.pqcRY
 
     def apply_gate(self, gate_name, wires, angle=None):
         """Apply the noisy gate based on its name."""
@@ -81,13 +83,17 @@ class PennylaneNoisyGates:
             qml.RZ(z_noise[i], wires=wire, id="z_noise")
 
     def pqcRX(self, wires, angle):
-        """Parameterized noisy RX gate with random over-rotation."""
+        """Parameterized RX gate, no noise."""
         qml.RX(angle, wires=wires)
         
     def pqcRZ(self, wires, angle):
-        """Parameterized noisy RZ gate with random over-rotation."""
+        """Parameterized RZ gate, no noise."""
         qml.RZ(angle, wires=wires)
-        
+    
+    def pqcRY(self, wires, angle):
+        """Parameterized RY gate, no noise."""
+        qml.RY(angle, wires=wires)
+
     def noisyX(self, wires):
         """Noisy X gate with random over-rotation."""
         qml.PauliX(wires=wires)

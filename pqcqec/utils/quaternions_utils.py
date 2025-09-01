@@ -72,3 +72,70 @@ def quaternion_to_zxz_angles(q):
     U = su2_from_quaternion(q)
     return zxz_from_su2(U)
 
+
+# ---------------------------
+# XZY decomposition (Rx-Rz-Ry)
+# ---------------------------
+def _rotmat_from_unit_quaternion(q: jnp.ndarray) -> jnp.ndarray:
+    """SO(3) rotation matrix from a (normalized) quaternion (w,x,y,z)."""
+    w, x, y, z = normalize_quaternion(q)
+    ww, xx, yy, zz = w*w, x*x, y*y, z*z
+    wx, wy, wz = w*x, w*y, w*z
+    xy, xz, yz = x*y, x*z, y*z
+    two = jnp.array(2.0, dtype=q.dtype)
+    one = jnp.array(1.0, dtype=q.dtype)
+    return jnp.array([
+        [one - two*(yy + zz), two*(xy - wz),     two*(xz + wy)],
+        [two*(xy + wz),       one - two*(xx+zz), two*(yz - wx)],
+        [two*(xz - wy),       two*(yz + wx),     one - two*(xx+yy)],
+    ], dtype=jnp.float32)
+
+def xzy_from_rotmat(R: jnp.ndarray, eps: float = 1e-8) -> jnp.ndarray:
+    """Euler angles (a,b,g) for XZY order, i.e., Rx(a) Rz(b) Ry(g).
+
+    Handles the gimbal case cos(b)≈0 by setting g=0 and solving a from first column.
+    Returns angles wrapped to (-pi, pi].
+    """
+    r00, r01, r02 = R[0,0], R[0,1], R[0,2]
+    r11, r21 = R[1,1], R[2,1]
+    r10, r20 = R[1,0], R[2,0]
+
+    cb = jnp.sqrt(r00*r00 + r02*r02)
+    b = jnp.arctan2(-r01, cb)
+
+    # Generic branch
+    a_gen = jnp.arctan2(r21, r11)
+    g_gen = jnp.arctan2(r02, r00)
+
+    # Gimbal-lock branch (cb≈0): set g=0, solve a from first column
+    a_gim = jnp.arctan2(r20, r10)
+    g_gim = jnp.array(0.0, dtype=R.dtype)
+
+    use_gim = cb < jnp.array(eps, dtype=R.dtype)
+    a = jnp.where(use_gim, a_gim, a_gen)
+    g = jnp.where(use_gim, g_gim, g_gen)
+
+    # Wrap to (-pi, pi]
+    a = _wrap_pi(a); b = _wrap_pi(b); g = _wrap_pi(g)
+    return jnp.stack([a, b, g])
+
+def xzy_from_su2(U: jnp.ndarray, eps: float = 1e-8) -> jnp.ndarray:
+    """Compute XZY Euler angles from an SU(2) matrix U.
+
+    Reconstruct a real unit quaternion (w,x,y,z) from U, map to SO(3), then extract XZY angles.
+    """
+    u11, u12 = U[0,0], U[0,1]
+    u21, u22 = U[1,0], U[1,1]
+    # Recover quaternion components (robust to small numeric drift)
+    w = 0.5 * (jnp.real(u11) + jnp.real(u22))
+    x = -jnp.imag(u12)
+    y = -jnp.real(u12)
+    z = 0.5 * (jnp.imag(u22) - jnp.imag(u11))
+    q = jnp.stack([w, x, y, z]).astype(jnp.float32)
+    R = _rotmat_from_unit_quaternion(q)
+    return xzy_from_rotmat(R, eps=eps)
+
+def quaternion_to_xzy_angles(q: jnp.ndarray, eps: float = 1e-8) -> jnp.ndarray:
+    """Convert quaternion (w,x,y,z) directly to XZY Euler angles for Rx-Rz-Ry."""
+    R = _rotmat_from_unit_quaternion(q)
+    return xzy_from_rotmat(R, eps=eps)

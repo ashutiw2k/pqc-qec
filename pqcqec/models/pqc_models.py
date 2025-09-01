@@ -7,7 +7,7 @@ from typing import List
 
 from ..circuits.modify import pennylane_state_embedding
 from ..noise.simple_noise import PennylaneNoisyGates
-from ..utils.quaternions_utils import quaternion_to_zxz_angles
+from ..utils.quaternions_utils import quaternion_to_zxz_angles, quaternion_to_xzy_angles
 
 class StateInputModelInterleavedPQCModel:
     """A class to define the PQC model."""
@@ -141,7 +141,7 @@ class StateInputModelInterleavedQuaternionModel:
     """A class to define the Quaternion PQC model."""
     
     def __init__(self, circuit_ops:List, num_qubits:int, noise_model:PennylaneNoisyGates,
-                 pqc_blocks=1, gate_blocks=1, seed=0):
+                 pqc_blocks=1, gate_blocks=1, seed=0, quaternion_to_angles=quaternion_to_zxz_angles):
         """
         Initialize the PQC model with the given parameters.
         Args:
@@ -167,6 +167,7 @@ class StateInputModelInterleavedQuaternionModel:
         self.diff_method = "backprop"  # Use backpropagation for differentiation
 
         self.pqc_gates = ['rz', 'rx', 'rz']
+        # self.pqc_gates = ['rx', 'rz', 'ry']
         self.num_quaternion_values = 4
 
         self.param_sz = (int(self.pqc_blocks * jnp.ceil(self.num_gates/self.gate_blocks)), self.num_qubits, self.num_quaternion_values)
@@ -187,6 +188,7 @@ class StateInputModelInterleavedQuaternionModel:
         self.quaternions = jnp.concatenate([w, v], axis=-1).astype(jnp.float32)
         # print(self.quaternions)
         # self.pqc_params = pnp.array(init_params, requires_grad=True, dtype=jnp.float32)
+        self.quaternion_to_pqc_angles_fn = quaternion_to_angles
 
 
         
@@ -237,7 +239,7 @@ class StateInputModelInterleavedQuaternionModel:
 
     def get_pqc_params_from_block_quaternions(self, quaternions):
         """Convert quaternions to PQC parameters."""
-        angles = jax.vmap(quaternion_to_zxz_angles)(quaternions)
+        angles = jax.vmap(self.quaternion_to_pqc_angles_fn)(quaternions)
         return angles
 
     def get_pqc_params_from_all_quaternions(self):
