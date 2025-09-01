@@ -84,9 +84,9 @@ def pqc_experiment_runner(
     WARMUP_STEPS = int(0.1 * TOTAL_STEPS)
     RESTART_PERIOD = int(0.25 * TOTAL_STEPS)
 
-    INIT_LR = 7e-5
-    PEAK_LR = 5e-4
-    MIN_LR = 5e-5
+    INIT_LR = 1e-4
+    PEAK_LR = 1e-2
+    MIN_LR = 5e-4
 
     # 1. Warmup schedule
     warmup = optax.linear_schedule(
@@ -111,7 +111,7 @@ def pqc_experiment_runner(
     optimizer = optax.chain(
         optax.clip_by_global_norm(1.0),
         optax.scale_by_adam(eps=1e-8),
-        optax.add_decayed_weights(weight_decay=1e-7),
+        optax.add_decayed_weights(weight_decay=1e-5),
         optax.scale_by_schedule(schedule),
         optax.scale(-1.0)
     )
@@ -159,9 +159,9 @@ def pqc_experiment_runner(
 
     print(f"Fidelity (Ideal, Noisy): {jnp.mean(fidelity_ideal_noisy):.4e}")
     print(f"Fidelity (Ideal, PQC): {jnp.mean(fidelity_ideal_pqc):.4e}")
-    print(f"Test MSE Loss (Noisy): {jax_mse_complex_loss(ideal_out_state, noisy_state):.4e}")
-    print(f'Model Parameters: \n{model.get_model_params()}')
+    # print(f"Test MSE Loss (Noisy): {jax_mse_complex_loss(ideal_out_state, noisy_state):.4e}")
+    # print(f'Model Parameters: \n{model.get_model_params()}')
     if return_fidelity:
         return fidelity_ideal_noisy, fidelity_ideal_pqc
 
-    return uncomp_circuit_ops, model.get_circuit_tokens(), jnp.mean(fidelity_ideal_pqc).item(), model.get_model_params()
+    return uncomp_circuit_ops, model.get_circuit_tokens(), jnp.mean(fidelity_ideal_pqc).item(), model.get_pqc_params()

@@ -88,6 +88,9 @@ class StateInputModelInterleavedPQCModel:
         """Set the model parameters."""
         self.pqc_params = new_params
 
+    def get_pqc_params(self):
+        return self.pqc_params
+
     def run_model_batch(self, in_state, params=None):
         """Run the model circuit on the BATCHED parameters and return the output state."""
         if params is None:
@@ -226,7 +229,11 @@ class StateInputModelInterleavedQuaternionModel:
 
     def set_model_params(self, new_params: jnp.ndarray):
         """Set the model parameters."""
+        assert not jnp.isnan(new_params).any(), "New parameters contain NaNs."
         self.quaternions = new_params.astype(jnp.float32)
+
+    def get_pqc_params(self):
+        return self.get_pqc_params_from_all_quaternions()
 
     def get_pqc_params_from_block_quaternions(self, quaternions):
         """Convert quaternions to PQC parameters."""

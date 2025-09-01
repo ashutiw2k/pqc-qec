@@ -1,12 +1,13 @@
 import jax.numpy as jnp
-from jax import random
+# from jax import random
 
 # ---------------------------
 # 1) SU(2) from unit quaternion
 # ---------------------------
 def normalize_quaternion(q, enforce_w_nonneg=True, eps=1e-8):
-    assert len(q) == 4, "Quaternion must have 4 components (w, x, y, z)."
     q = jnp.asarray(q, dtype=jnp.float32)
+    # Sanitize to avoid NaN/Inf flowing into normalization under JIT/vmap
+    q = jnp.nan_to_num(q, nan=0.0, posinf=0.0, neginf=0.0)
     q = q / (jnp.linalg.norm(q) + eps)
     if enforce_w_nonneg:
         q = jnp.where(q[0] < 0.0, -q, q)
@@ -33,7 +34,7 @@ def zxz_from_su2(U, eps=1e-12):
 
     safe_abs_u11 = jnp.clip(jnp.abs(u11), 0.0, 1.0 - eps)
     beta = 2*jnp.arccos(safe_abs_u11)    
-    
+
     # --- Calculate the results for all three potential cases ---
     # Case 1: beta is near 0
     alpha_case1 = _wrap_pi(jnp.angle(u11) - jnp.angle(u22))
@@ -70,5 +71,4 @@ def zxz_from_su2(U, eps=1e-12):
 def quaternion_to_zxz_angles(q):
     U = su2_from_quaternion(q)
     return zxz_from_su2(U)
-
 

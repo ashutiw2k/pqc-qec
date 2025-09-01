@@ -23,8 +23,12 @@ def train_pqc_model_with_uncomp(model, dataloader, optimizer, schedule, main_los
             return main_loss_fn(ideal_data, measured)
 
         loss, grads = jax.value_and_grad(loss_fn)(params)
+        # Sanitize gradients to avoid NaN/Inf explosions
+        grads = jax.tree.map(lambda g: jnp.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), grads)
         updates, opt_state = optimizer.update(grads, opt_state, params)
         new_params = optax.apply_updates(params, updates)
+        # Keep params finite
+        new_params = jax.tree.map(lambda p: jnp.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0), new_params)
 
         # Fidelity after parameter update
         measured = model(ideal_data, params=new_params)
@@ -32,10 +36,10 @@ def train_pqc_model_with_uncomp(model, dataloader, optimizer, schedule, main_los
 
         return opt_state, new_params, loss, fidelity
 
+    # Initialize optimizer state once and carry across epochs
+    opt_state = optimizer.init(model.get_model_params())
     for e in range(epochs):
         print(f"Epoch {e + 1}/{epochs}")
-        # Reset op state for each epoch    
-        opt_state = optimizer.init(model.get_model_params())
         data_iterator = tqdm(dataloader, desc="Training", total=len(dataloader), leave=False, unit='batch')
         
         # Initialize lists to track metrics for this epoch
@@ -81,8 +85,10 @@ def train_pqc_model_no_uncomp(model, dataloader, optimizer, schedule, main_loss_
             return main_loss_fn(simulated, measured)
 
         loss, grads = jax.value_and_grad(loss_fn)(params)
+        grads = jax.tree.map(lambda g: jnp.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), grads)
         updates, opt_state = optimizer.update(grads, opt_state, params)
         new_params = optax.apply_updates(params, updates)
+        new_params = jax.tree.map(lambda p: jnp.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0), new_params)
 
         # Fidelity after parameter update
         measured = model(ideal_data, params=new_params)
@@ -92,10 +98,9 @@ def train_pqc_model_no_uncomp(model, dataloader, optimizer, schedule, main_loss_
 
         return opt_state, new_params, loss, fidelity
 
+    opt_state = optimizer.init(model.get_model_params())
     for e in range(epochs):
         print(f"Epoch {e + 1}/{epochs}")
-        # Reset op state for each epoch    
-        opt_state = optimizer.init(model.get_model_params())
         data_iterator = tqdm(dataloader, desc="Training", total=len(dataloader), leave=False, unit='batch')
         
         # Initialize lists to track metrics for this epoch
