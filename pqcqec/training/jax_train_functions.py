@@ -7,11 +7,11 @@ import random
 from tqdm import tqdm
 from typing import Callable 
 
-from .jax_loss_functions import jax_mse_complex_loss, jax_pure_state_fidelity
+from .jax_loss_functions import jax_mse_complex_loss, jax_pure_state_fidelity, jax_fidelity_loss
 from ..simulate.simulate import run_ideal_circuit, run_circuit_with_noise_model
 from ..noise.simple_noise import PennylaneNoisyGates
 
-def train_pqc_model_with_uncomp(model, dataloader, optimizer, schedule, main_loss_fn=jax_mse_complex_loss, epochs=1):
+def train_pqc_model_with_uncomp(model, dataloader, optimizer, schedule, main_loss_fn=jax_fidelity_loss, epochs=1):
 
     @jax.jit
     def update_step(params, opt_state, ideal_data):
@@ -35,7 +35,7 @@ def train_pqc_model_with_uncomp(model, dataloader, optimizer, schedule, main_los
     for e in range(epochs):
         print(f"Epoch {e + 1}/{epochs}")
         # Reset op state for each epoch    
-        opt_state = optimizer.init(model.pqc_params)
+        opt_state = optimizer.init(model.get_model_params())
         data_iterator = tqdm(dataloader, desc="Training", total=len(dataloader), leave=False, unit='batch')
         
         # Initialize lists to track metrics for this epoch
@@ -50,9 +50,9 @@ def train_pqc_model_with_uncomp(model, dataloader, optimizer, schedule, main_los
             # print(f'Ideal Data Shape: {ideal_data.shape}')
             # print(f'Ideal Data \n: {ideal_data}')
 
-            opt_state, params, loss, fidelity = update_step(model.pqc_params, opt_state, ideal_data)
-            model.pqc_params = params
-            
+            opt_state, params, loss, fidelity = update_step(model.get_model_params(), opt_state, ideal_data)
+            model.set_model_params(params)
+
             # Track metrics
             epoch_fidelities.append(float(fidelity))
             epoch_losses.append(float(loss))
@@ -67,7 +67,7 @@ def train_pqc_model_with_uncomp(model, dataloader, optimizer, schedule, main_los
         print(f"Epoch {e+1} summary - Mean Fidelity: {mean_fidelity:.4e}, Mean Loss: {mean_loss:.4e}")
 
 
-def train_pqc_model_no_uncomp(model, dataloader, optimizer, schedule, main_loss_fn=jax_mse_complex_loss, epochs=1):
+def train_pqc_model_no_uncomp(model, dataloader, optimizer, schedule, main_loss_fn=jax_fidelity_loss, epochs=1):
     
     no_noise_model = PennylaneNoisyGates(x_rad=0, z_rad=0, delta_x=0, delta_z=0, seed=0)
 
@@ -95,7 +95,7 @@ def train_pqc_model_no_uncomp(model, dataloader, optimizer, schedule, main_loss_
     for e in range(epochs):
         print(f"Epoch {e + 1}/{epochs}")
         # Reset op state for each epoch    
-        opt_state = optimizer.init(model.pqc_params)
+        opt_state = optimizer.init(model.get_model_params())
         data_iterator = tqdm(dataloader, desc="Training", total=len(dataloader), leave=False, unit='batch')
         
         # Initialize lists to track metrics for this epoch
@@ -110,9 +110,9 @@ def train_pqc_model_no_uncomp(model, dataloader, optimizer, schedule, main_loss_
             # print(f'Ideal Data Shape: {ideal_data.shape}')
             # print(f'Ideal Data \n: {ideal_data}')
 
-            opt_state, params, loss, fidelity = update_step(model.pqc_params, opt_state, ideal_data)
-            model.pqc_params = params
-            
+            opt_state, params, loss, fidelity = update_step(model.get_model_params(), opt_state, ideal_data)
+            model.set_model_params(params)
+
             # Track metrics
             epoch_fidelities.append(float(fidelity))
             epoch_losses.append(float(loss))

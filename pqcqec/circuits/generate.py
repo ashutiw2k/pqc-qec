@@ -53,7 +53,7 @@ def generate_random_circuit_list(num_qubits: int, num_gates: int, gate_dist:dict
         gate_q = QUBITS_FOR_GATES.get(gate)
         # gate_f = PENNYLANE_GATES.get(gate)
         q = random.sample(population=range(num_qubits), k=gate_q)
-        circuit_ops.append((gate, q))
+        circuit_ops.append((gate, q, [])) # Empty place holder for params, what the circuit sim expects. 
 
     return circuit_ops
 
