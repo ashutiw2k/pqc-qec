@@ -7,7 +7,7 @@ import random
 from tqdm import tqdm
 from typing import Callable 
 
-from .jax_loss_functions import jax_mse_complex_loss, jax_pure_state_fidelity, jax_fidelity_loss
+from .jax_loss_functions import jax_mse_complex_loss_aligned, jax_pure_state_fidelity, jax_fidelity_loss, jax_hilbert_schmidt_density_loss
 from ..simulate.simulate import run_ideal_circuit, run_circuit_with_noise_model
 from ..noise.simple_noise import PennylaneNoisyGates
 

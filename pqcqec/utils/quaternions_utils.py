@@ -4,14 +4,17 @@ import jax.numpy as jnp
 # ---------------------------
 # 1) SU(2) from unit quaternion
 # ---------------------------
+
 def normalize_quaternion(q, enforce_w_nonneg=True, eps=1e-8):
     q = jnp.asarray(q, dtype=jnp.float32)
     # Sanitize to avoid NaN/Inf flowing into normalization under JIT/vmap
     q = jnp.nan_to_num(q, nan=0.0, posinf=0.0, neginf=0.0)
-    q = q / (jnp.linalg.norm(q) + eps)
+    norm = jnp.linalg.norm(q, axis=-1, keepdims=True)
+    q = q / (norm + eps)
     if enforce_w_nonneg:
-        q = jnp.where(q[0] < 0.0, -q, q)
-    return q  # (w,x,y,z), ||q||=1
+        sign = jnp.where(q[..., 0:1] < 0.0, -1.0, 1.0)
+        q = sign * q
+    return q # (w,x,y,z), ||q||=1\
 
 def su2_from_quaternion(q):
     """U = w I - i (x σx + y σy + z σz) ∈ SU(2)."""
