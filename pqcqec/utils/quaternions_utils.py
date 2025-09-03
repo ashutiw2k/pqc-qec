@@ -37,14 +37,16 @@ def zxz_from_su2(U, eps=1e-12):
 
     # --- Calculate the results for all three potential cases ---
     # Case 1: beta is near 0
-    alpha_case1 = _wrap_pi(jnp.angle(u11) - jnp.angle(u22))
+    # CORRECTED: Flipped the order of subtraction
+    alpha_case1 = _wrap_pi(jnp.angle(u22) - jnp.angle(u11))
     beta_case1 = 0.0
     gamma_case1 = 0.0
 
     # Case 2: beta is near pi
     alpha_case2 = 0.0
     beta_case2 = jnp.pi
-    gamma_case2 = _wrap_pi(jnp.angle(-u21) - jnp.angle(u12))
+    # CORRECTED: Added a negative sign
+    gamma_case2 = _wrap_pi(-(jnp.angle(-u21) - jnp.angle(u12)))
 
     # Case 3: generic case
     apg = jnp.angle(u22) - jnp.angle(u11)    # α+γ
@@ -52,7 +54,7 @@ def zxz_from_su2(U, eps=1e-12):
     alpha_case3 = _wrap_pi(0.5*(apg + amg))
     beta_case3 = beta # Use the calculated beta for the default case
     gamma_case3 = _wrap_pi(0.5*(apg - amg))
-
+    
     # --- Define the conditions ---
     cond1 = beta < eps
     cond2 = jnp.abs(jnp.pi - beta) < eps

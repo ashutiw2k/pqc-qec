@@ -141,7 +141,7 @@ class StateInputModelInterleavedQuaternionModel:
     """A class to define the Quaternion PQC model."""
     
     def __init__(self, circuit_ops:List, num_qubits:int, noise_model:PennylaneNoisyGates,
-                 pqc_blocks=1, gate_blocks=1, seed=0, quaternion_to_angles=quaternion_to_zxz_angles):
+                 pqc_blocks=1, gate_blocks=1, seed=0, pqc_type='zxz'):
         """
         Initialize the PQC model with the given parameters.
         Args:
@@ -166,8 +166,16 @@ class StateInputModelInterleavedQuaternionModel:
         self.qdev_cpu = qml.device("default.qubit", wires=self.num_qubits)
         self.diff_method = "backprop"  # Use backpropagation for differentiation
 
-        self.pqc_gates = ['rz', 'rx', 'rz']
+        # self.pqc_gates = ['rz', 'rx', 'rz']
         # self.pqc_gates = ['rx', 'rz', 'ry']
+
+        if pqc_type == 'zxz':
+            self.pqc_gates = ['rz', 'rx', 'rz']
+            self.quaternion_to_pqc_angles_fn = quaternion_to_zxz_angles
+        elif pqc_type == 'xzy':
+            self.pqc_gates = ['rx', 'rz', 'ry']
+            self.quaternion_to_pqc_angles_fn = quaternion_to_xzy_angles
+
         self.num_quaternion_values = 4
 
         self.param_sz = (int(self.pqc_blocks * jnp.ceil(self.num_gates/self.gate_blocks)), self.num_qubits, self.num_quaternion_values)
@@ -188,7 +196,7 @@ class StateInputModelInterleavedQuaternionModel:
         self.quaternions = jnp.concatenate([w, v], axis=-1).astype(jnp.float32)
         # print(self.quaternions)
         # self.pqc_params = pnp.array(init_params, requires_grad=True, dtype=jnp.float32)
-        self.quaternion_to_pqc_angles_fn = quaternion_to_angles
+        
 
 
         
