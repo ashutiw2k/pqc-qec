@@ -263,6 +263,7 @@ def main():
         'seed_max': config.get('seed'),
         'redo': config.get('redo'),
         'force': config.get('force'),
+        'uncomp': config.get('uncomp'),
     }
 
     # Resolve worker count from --mp_cores
