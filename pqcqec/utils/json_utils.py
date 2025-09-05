@@ -18,10 +18,16 @@ def read_json(path, default=None):
 
 
 def write_json(path, data):
-    """Write JSON to path (atomic best-effort)."""
+    """Write JSON to path (atomic best-effort, compact/minified)."""
     tmp_path = f"{path}.tmp"
     with open(tmp_path, 'w') as f:
-        json.dump(data, f, default=str)
+        json.dump(
+            data,
+            f,
+            default=str,
+            separators=(',', ':'),  # minified JSON
+            ensure_ascii=False,
+        )
     os.replace(tmp_path, path)
 
 
@@ -83,5 +89,4 @@ def deep_tuple(x):
     """
     return (tuple(deep_tuple(i) for i in x)
             if isinstance(x, (list, tuple)) else x)
-
 
