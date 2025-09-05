@@ -5,6 +5,8 @@ import multiprocessing
 import time
 import platform
 import resource
+import signal
+import atexit
 from datetime import datetime
 
 from pathlib import Path
@@ -242,10 +244,82 @@ def main():
     ru_maxrss_peak = 0
 
     config = get_all_valid_args(args, include_args=required_args)
-    # Keep only compact summaries in memory across runs
-    poor_fid_summaries_all = []
-    good_fid_summaries_all = []
+    # Keep only compact counters in memory across runs
+    poor_total = 0
+    good_total = 0
     gate_blocks = config['gate_blocks']
+
+    # -----------------------------
+    # Safe-shutdown autosave plumbing
+    # -----------------------------
+    state = {
+        'good_fid_file': None,
+        'poor_fid_file': None,
+        # Small buffers (seed -> fidelity) to minimize memory
+        'good_buf': {},
+        'poor_buf': {},
+        'current_qubit': None,
+        'current_gate': None,
+        'last_flush_ts': 0.0,
+        'flush_interval_sec': 1200.0,  # also flush periodically
+        'processed_since_flush': 0,
+        'autosave_every': 1000,       # flush every N processed results
+    }
+
+    def _flush_seed_maps(reason="manual"):
+        """Merge buffered entries into JSON files and clear buffers (best-effort)."""
+        try:
+            gfile = state.get('good_fid_file')
+            pfile = state.get('poor_fid_file')
+            gbuf = state.get('good_buf') or {}
+            pbuf = state.get('poor_buf') or {}
+
+            if gfile and gbuf:
+                current = load_seed_fid_map(gfile)
+                for k, v in list(gbuf.items()):
+                    try:
+                        current[int(k)] = float(v)
+                    except Exception:
+                        continue
+                save_seed_fid_map(gfile, current)
+                state['good_buf'].clear()
+
+            if pfile and pbuf:
+                current = load_seed_fid_map(pfile)
+                for k, v in list(pbuf.items()):
+                    try:
+                        current[int(k)] = float(v)
+                    except Exception:
+                        continue
+                save_seed_fid_map(pfile, current)
+                state['poor_buf'].clear()
+
+            state['last_flush_ts'] = time.time()
+            state['processed_since_flush'] = 0
+        except Exception:
+            # Avoid raising inside signal/atexit context
+            pass
+
+    def _signal_handler(signum, frame):  # pragma: no cover - best-effort
+        try:
+            print(f"\nReceived signal {signum}; attempting to flush seed maps before exit...")
+        except Exception:
+            pass
+        _flush_seed_maps(reason=f"signal_{signum}")
+        # Re-raise KeyboardInterrupt for SIGINT to trigger outer handlers/cleanup
+        if signum == getattr(signal, 'SIGINT', None):
+            raise KeyboardInterrupt
+
+    # Register atexit and signal handlers once
+    atexit.register(lambda: _flush_seed_maps(reason="atexit"))
+    try:
+        signal.signal(signal.SIGINT, _signal_handler)
+    except Exception:
+        pass
+    try:
+        signal.signal(signal.SIGTERM, _signal_handler)
+    except Exception:
+        pass
 
     # Shallow config summary for context in the stats
     mp_stats['config_summary'] = {
@@ -325,6 +399,14 @@ def main():
             poor_fid_map = load_seed_fid_map(poor_fid_file)
             good_fid_map = load_seed_fid_map(good_fid_file)
             processed_seed_set = set(poor_fid_map.keys()) | set(good_fid_map.keys())
+
+            # Update autosave state for this config
+            state.update({
+                'good_fid_file': good_fid_file,
+                'poor_fid_file': poor_fid_file,
+                'current_qubit': qubit,
+                'current_gate': gate,
+            })
 
             # for seed in range(num_circs):
             # Create a generator to avoid holding the whole task list in memory
@@ -412,14 +494,33 @@ def main():
 
                         if status == 'success':
                             print(f"PQC Circuit Fidelity good for seed {seed} : {fid}")
-                            good_fid_summaries_all.append((qubit, gate, seed, fid))
+                            good_total += 1
+                            # Buffer and consider autosave
+                            try:
+                                state['good_buf'][int(seed)] = float(fid)
+                                state['processed_since_flush'] += 1
+                            except Exception:
+                                pass
                             mp_stats['overall']['runs_good_fidelity'] += 1
                             cfg_counts['runs_good_fidelity'] += 1
                         else:
                             print(f"Poor PQC Circuit Fidelity for seed {seed} : {fid}")
-                            poor_fid_summaries_all.append((qubit, gate, seed, fid))
+                            poor_total += 1
+                            # Buffer and consider autosave
+                            try:
+                                state['poor_buf'][int(seed)] = float(fid)
+                                state['processed_since_flush'] += 1
+                            except Exception:
+                                pass
                             mp_stats['overall']['runs_poor_fidelity'] += 1
                             cfg_counts['runs_poor_fidelity'] += 1
+
+                        # Periodic autosave based on count or time interval
+                        try:
+                            if state['processed_since_flush'] >= state['autosave_every'] or (time.time() - state['last_flush_ts']) >= state['flush_interval_sec']:
+                                _flush_seed_maps(reason="periodic")
+                        except Exception:
+                            pass
 
                     elif status == 'skipped':
                         print(res.get('message'))
@@ -437,21 +538,13 @@ def main():
             finally:
                 pool.join()
             try:
-                # Start from previously loaded maps to preserve history; only add entries for current (qubit, gate)
-                for q, g, s, fid in good_fid_summaries_all:
-                    if q == qubit and g == gate:
-                        good_fid_map[int(s)] = float(fid)
-                for q, g, s, fid in poor_fid_summaries_all:
-                    if q == qubit and g == gate:
-                        poor_fid_map[int(s)] = float(fid)
-
-                save_seed_fid_map(good_fid_file, good_fid_map)
-                save_seed_fid_map(poor_fid_file, poor_fid_map)
+                # Ensure any remaining buffered updates are flushed for this config
+                _flush_seed_maps(reason="end_of_config")
             except Exception as e:
                 print(f"Warning: failed to write seed:fidelity maps: {e}")
 
             print()
-            # No longer store full parameter arrays in memory; summaries tracked in poor_fid_summaries_all
+            # No longer store full per-seed summaries in memory; counts + flushed JSON only
 
             # Per-config stats file under this data_dir
             config_end = time.perf_counter()
@@ -506,31 +599,15 @@ def main():
             with open(os.path.join(data_dir, 'mp_stats.json'), 'w') as f:
                 json.dump(cfg_stats, f, default=str)
 
-    poor_params_len = len(poor_fid_summaries_all)
-    print(f"{poor_params_len} circuits not saved for the following poor fidelity parameters:")
-    for q, g, s, fid in poor_fid_summaries_all:
-        print(f" - Qubits: {q}, Gates: {g}, Seed: {s}, PQC Fidelity: {fid}")
+    # Maintain only counts in memory to minimize overhead
+    total_processed = good_total + poor_total
+    poor_params_len = poor_total
+    print(f"{poor_params_len} circuits not saved due to poor fidelity.")
 
-    # Final summary as requested
-    total_processed = len(good_fid_summaries_all) + len(poor_fid_summaries_all)
     print("\n===== Run Summary =====")
     print(f"Seeds processed: {total_processed}")
-    print(f"Good fidelity: {len(good_fid_summaries_all)}")
-    print(f"Poor fidelity: {len(poor_fid_summaries_all)}")
-
-    if good_fid_summaries_all:
-        print("\nGood fidelity seeds:")
-        for q, g, s, fid in sorted(good_fid_summaries_all):
-            print(f" - Qubits: {q}, Gates: {g}, Seed: {s}, Fidelity: {fid}")
-    else:
-        print("\nGood fidelity seeds: None")
-
-    if poor_fid_summaries_all:
-        print("\nPoor fidelity seeds:")
-        for q, g, s, fid in sorted(poor_fid_summaries_all):
-            print(f" - Qubits: {q}, Gates: {g}, Seed: {s}, Fidelity: {fid}")
-    else:
-        print("\nPoor fidelity seeds: None")
+    print(f"Good fidelity: {good_total}")
+    print(f"Poor fidelity: {poor_total}")
 
     # Finalize overall stats and always write mp_stats
     overall_end = time.perf_counter()
