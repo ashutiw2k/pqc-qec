@@ -11,8 +11,8 @@ set -uo pipefail
 
 usage() {
   echo "Usage: $0 <config_path> <counter1> [counter2]" >&2
-  echo "  Two args: seeds 10000 .. counter1*10000" >&2
-  echo "  Three args: seeds counter1*10000 .. counter2*10000" >&2
+  echo "  Two args: seeds 5000 .. counter1*5000" >&2
+  echo "  Three args: seeds counter1*5000 .. counter2*5000" >&2
   exit 1
 }
 
@@ -51,7 +51,7 @@ if [[ -n "$COUNTER2" ]] && ! [[ "$COUNTER2" =~ ^[0-9]+$ ]]; then
   exit 4
 fi
 
-SCALE=10000
+SCALE=5000
 
 if [[ -n "$COUNTER2" ]]; then
   START=$(( COUNTER1 * SCALE ))

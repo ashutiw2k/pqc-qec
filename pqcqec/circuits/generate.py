@@ -38,11 +38,8 @@ def generate_random_circuit_pennylane(num_qubits: int, num_gates: int, gate_dist
 
     return circuit_ops
 
-def generate_random_circuit_list(num_qubits: int, num_gates: int, gate_dist:dict=None):
+def generate_random_circuit_list(num_qubits: int, num_gates: int, gate_dist:dict):
     circuit_ops = []
-
-    if gate_dist is None:
-        gate_dist = {gate:1/len(PENNYLANE_GATES) for gate in PENNYLANE_GATES} # Uniform distribution of gates
 
     gates = random.choices(
         population=list(gate_dist.keys()), 
@@ -58,7 +55,7 @@ def generate_random_circuit_list(num_qubits: int, num_gates: int, gate_dist:dict
     return circuit_ops
 
 
-def generate_random_circuit(num_qubits: int, num_gates: int, gate_dist:dict=None, seed=None, backend='qiskit'):
+def generate_random_circuit(num_qubits: int, num_gates: int, gate_dist:dict=None, seed=None, backend='list'):
 
     if seed is not None:
         random.seed(seed)

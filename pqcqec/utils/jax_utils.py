@@ -28,9 +28,12 @@ class JAXDataLoader:
         self.reset()
 
     def reset(self):
-
+        # Advance PRNG key each epoch to avoid identical permutations
         if self.shuffle:
-            self.indices = jax.random.permutation(self.key, self.indices)
+            self.key, sub = jax.random.split(self.key)
+            self.indices = jax.random.permutation(sub, len(self.indices))
+        else:
+            self.indices = jnp.arange(len(self.dataset))
         self.current_idx = 0
 
     def __iter__(self):
@@ -47,9 +50,18 @@ class JAXDataLoader:
         if self.drop_last and len(batch_indices) < self.batch_size:
             raise StopIteration
 
-        samples = [self.dataset[i] for i in batch_indices]
-        grouped = list(zip(*samples))
-        batched = tuple(jnp.stack(g) for g in grouped)
+        # Fast path: if dataset exposes a tensor-like field, slice directly
+        if hasattr(self.dataset, 'ideal_data'):
+            x = self.dataset.ideal_data[batch_indices]
+            # Maintain original API: return a tuple (x_batch, y_batch, ...)
+            # JAXStateDataset returns (x, 0); we emulate a vector of zeros for the batch
+            y = jnp.zeros((x.shape[0],), dtype=jnp.int32)
+            batched = (x, y)
+        else:
+            # Fallback: materialize samples and stack
+            samples = [self.dataset[int(i)] for i in list(batch_indices)]
+            grouped = list(zip(*samples))
+            batched = tuple(jnp.stack(g) for g in grouped)
 
         self.current_idx = end_idx
         return batched  # returns a tuple: (x_batch, y_batch, ...)

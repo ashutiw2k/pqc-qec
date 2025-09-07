@@ -118,3 +118,16 @@ class PennylaneNoisyGates:
         """Noisy Hadamard gate with random over-rotation."""
         qml.Hadamard(wires=wires)
         self.apply_noise(wires)
+
+    def __str__(self):
+        return (f"PennylaneNoisyGates(x_noise={self.x_noise:.4f}, z_noise={self.z_noise:.4f}, "
+                f"x_range=[{self.x_noise_min:.4f}, {self.x_noise_max:.4f}], "
+                f"z_range=[{self.z_noise_min:.4f}, {self.z_noise_max:.4f}])")
+
+    def __repr__(self):
+        return (f"PennylaneNoisyGates(x_rad={self.x_noise}, z_rad={self.z_noise}, "
+                f"delta_x={self.delta_x * 100.0 / self.x_noise:.1f}, "
+                f"delta_z={self.delta_z * 100.0 / self.z_noise:.1f}, "
+                f"x_range=[{self.x_noise_min}, {self.x_noise_max}], "
+                f"z_range=[{self.z_noise_min}, {self.z_noise_max}], "
+                f"seed={getattr(self.rng, '_seed', 'unknown')})")

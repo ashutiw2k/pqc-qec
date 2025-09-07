@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import pennylane as qml
 
-from typing import List
+from typing import List, Tuple, Dict
 
 from ..circuits.modify import pennylane_state_embedding
 from ..noise.simple_noise import PennylaneNoisyGates
@@ -217,9 +217,6 @@ class StateInputModelInterleavedQuaternionModel:
                 # Apply PQC to the qubit:
                 if (i+1) % self.gate_blocks == 0:
                     # 2) Apply the PQC gates:
-                    # print(f"Applying PQC block {i // self.gate_blocks + 1} with params: {pqc_params[i // self.gate_blocks]}")
-                    print(f'PQC Params Block Shape for {i+1} : {pqc_params.shape}')
-
                     pqc_params_block = pqc_params[i // self.gate_blocks]
                     # self.pqc_arch(self.num_qubits, pqc_params_block)
                     for qubit in range(self.num_qubits):
@@ -304,3 +301,78 @@ class StateInputModelInterleavedQuaternionModel:
 
         # 3) Return the circuit tokens with PQC params:
         return tokens
+
+
+
+## Lightweight model with static circuit structure ##
+
+# ==============================================================================
+# STEP 3: The rewritten, lightweight model class with robust logic
+# ==============================================================================
+class StateInputLightweightInterleavedQuaternionModel:
+    """
+    The memory-efficient, lightweight model. It only manages parameters and uses
+    a pre-compiled circuit for execution.
+    """
+    def __init__(self, num_qubits:int, num_gates:int, pqc_blocks=1, gate_blocks=1, seed=0, pqc_type='zxz'):
+        self.num_qubits = num_qubits
+        self.num_gates = num_gates
+        self.pqc_blocks = pqc_blocks
+        self.gate_blocks = gate_blocks
+        
+        if pqc_type == 'zxz':
+            self.pqc_gates = ['rz', 'rx', 'rz']
+            self.quaternion_to_pqc_angles_fn = quaternion_to_zxz_angles
+        elif pqc_type == 'xzy':
+            self.pqc_gates = ['rx', 'rz', 'ry']
+            self.quaternion_to_pqc_angles_fn = quaternion_to_xzy_angles
+        
+        # Calculate parameter shape and initialize raw, unconstrained parameters
+        num_sites = int(jnp.ceil(num_gates / gate_blocks))
+        blocks_total = num_sites * pqc_blocks
+        param_shape = (blocks_total, num_qubits, 4)
+        self._raw_q = jax.random.normal(jax.random.PRNGKey(seed), param_shape, dtype=jnp.float32)
+
+    @staticmethod
+    def _renorm(q: jnp.ndarray, eps: float = 1e-8) -> jnp.ndarray:
+        """Safely renormalizes a batch of vectors to be unit vectors."""
+        n = jnp.linalg.norm(q, axis=-1, keepdims=True)
+        n = jnp.clip(n, a_min=eps)
+        return q / n
+
+    def get_model_params(self) -> jnp.ndarray:
+        return self._raw_q
+
+    def set_model_params(self, new_params: jnp.ndarray):
+        self._raw_q = new_params
+
+    def get_pqc_params(self) -> jnp.ndarray:
+        return self._quats_to_angles(self._raw_q)
+
+    def _quats_to_angles(self, raw_q: jnp.ndarray) -> jnp.ndarray:
+        """Converts raw internal parameters to PQC angles."""
+        unit_q = self._renorm(raw_q)
+        # angles_per_quat = jax.vmap(self.quaternion_to_pqc_angles_fn)
+        angles_per_block = jax.vmap(self.quaternion_to_pqc_angles_fn)
+        return jax.vmap(angles_per_block)(unit_q)
+
+    def __call__(
+        self,
+        compiled_circuit_fn,
+        in_state: jnp.ndarray,
+        circuit_data: Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
+        params: jnp.ndarray = None
+    ) -> jnp.ndarray:
+        """Executes the pre-compiled circuit with this model's parameters."""
+        raw = self._raw_q if params is None else params
+        pqc_angles = self._quats_to_angles(raw)
+        gate_types, qubit_indices, gate_params = circuit_data
+        
+        return compiled_circuit_fn(in_state, pqc_angles, gate_types, qubit_indices, gate_params)
+
+
+
+
+
+
+

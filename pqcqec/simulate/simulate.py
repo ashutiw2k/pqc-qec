@@ -1,22 +1,76 @@
 import jax
 import jax.numpy as jnp
 import pennylane as qml
-from typing import List
+from typing import List, Tuple, Optional, Dict
 
 from ..circuits.modify import pennylane_state_embedding
 from ..noise.simple_noise import PennylaneNoisyGates
 from ..utils.constants import PENNYLANE_GATES
 
-def get_input_data(num_qubits, num_vals, seed=0):
-    """Generate ideal data for a Pennylane circuit with angle embedding."""
+def get_input_data(num_qubits: int, num_vals: int, seed: int = 0) -> jnp.ndarray:
+    """
+    Generate a batch of random, normalized complex state vectors.
+    """
+    key = jax.random.PRNGKey(seed)
+    shape = (num_vals, 2**num_qubits)
 
-    key_real, key_imag = jax.random.split(jax.random.PRNGKey(seed))
-
-    state =  jax.random.normal(key_real, (num_vals, 2**num_qubits,)) + 1j * jax.random.normal(key_imag, (num_vals, 2**num_qubits,))
+    # IMPROVEMENT: Generate complex numbers directly for cleaner, more efficient code.
+    state = jax.random.normal(key, shape, dtype=jnp.complex64)
+    
+    # Normalize the state vectors
     norms = jnp.linalg.norm(state, axis=1, keepdims=True)
-    ideal_data = state / norms
+    return state / norms
 
-    return ideal_data
+
+def create_optimized_circuit_executor(
+    circuit_ops: List[Tuple],
+    num_qubits: int,
+    noise_model: Optional[PennylaneNoisyGates] = None,
+    device: str = 'default.qubit'
+) -> Dict:
+    """
+    A "factory" that defines, compiles, and returns circuit execution functions.
+    This function should be called ONLY ONCE per unique circuit structure.
+
+    Args:
+        circuit_ops: The list of operations defining the circuit.
+        num_qubits: The number of qubits.
+        noise_model: An optional noise model. If None, an ideal circuit is created.
+        device: The PennyLane device to use.
+
+    Returns:
+        A dictionary containing 'single' and 'batched' JIT-compiled execution functions.
+    """
+    dev = qml.device(device, wires=num_qubits)
+
+    @qml.qnode(dev, interface='jax', diff_method=None)
+    def circuit(input_state: jnp.ndarray) -> jnp.ndarray:
+        """The static quantum circuit definition."""
+        pennylane_state_embedding(input_state, num_qubits)
+        
+        for op in circuit_ops:
+            gate_name, wires, params = op
+            
+            # This single block handles both noisy and ideal (noiseless) cases.
+            if noise_model:
+                # Use the noise model to apply the gate
+                noise_model.apply_gate(gate_name, wires, angle=params)
+            else:
+                # Apply the ideal gate
+                gate_fn = PENNYLANE_GATES[gate_name]
+                # Correctly handle parameterized ideal gates.
+                if params:
+                    gate_fn(params[0], wires=wires)
+                else:
+                    gate_fn(wires=wires)
+
+        return qml.state()
+
+    # Compile both single and batched versions efficiently and return them.
+    return {
+        'single': jax.jit(circuit),
+        'batched': jax.jit(jax.vmap(circuit, in_axes=(0,)))
+    }
 
 
 def run_circuit_with_noise_model(circuit_ops:List, input_state:jnp.ndarray, 

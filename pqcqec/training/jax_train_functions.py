@@ -130,3 +130,121 @@ def train_pqc_model_no_uncomp(model, dataloader, optimizer, schedule, main_loss_
         mean_fidelity = np.mean(epoch_fidelities)
         mean_loss = np.mean(epoch_losses)
         print(f"Epoch {e+1} summary - Mean Fidelity: {mean_fidelity:.4e}, Mean Loss: {mean_loss:.4e}")
+
+
+# MODIFIED: Function signature now accepts the new arguments from the experiment runner.
+def train_pqc_model_with_uncomp_optimized(
+    model, dataloader, optimizer, schedule,
+    static_circuit_executor, circuit_data,           # <-- NEW ARGS
+    main_loss_fn=jax_fidelity_loss, epochs=1
+):
+
+    @jax.jit
+    def update_step(params, opt_state, ideal_data):
+        """Perform a single update step for the model parameters."""
+        
+        def loss_fn(p):
+            # MODIFIED: The model call now requires the executor and circuit data.
+            measured = model(static_circuit_executor, ideal_data, circuit_data, params=p)
+            return main_loss_fn(ideal_data, measured)
+
+        loss, grads = jax.value_and_grad(loss_fn)(params)
+        # Sanitize gradients to avoid NaN/Inf explosions
+        grads = jax.tree.map(lambda g: jnp.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), grads)
+        updates, opt_state = optimizer.update(grads, opt_state, params)
+        new_params = optax.apply_updates(params, updates)
+        # Keep params finite
+        new_params = jax.tree.map(lambda p: jnp.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0), new_params)
+
+        # Fidelity after parameter update
+        # MODIFIED: The model call is also updated here.
+        measured = model(static_circuit_executor, ideal_data, circuit_data, params=new_params)
+        fidelity = jax_pure_state_fidelity(ideal_data, measured)
+
+        return opt_state, new_params, loss, fidelity
+
+    # --- The rest of the function remains unchanged ---
+    opt_state = optimizer.init(model.get_model_params())
+    for e in range(epochs):
+        print(f"Epoch {e + 1}/{epochs}")
+        data_iterator = tqdm(dataloader, desc="Training", total=len(dataloader), leave=False, unit='batch')
+        
+        epoch_fidelities = []
+        epoch_losses = []
+
+        for i, batch in enumerate(data_iterator):
+            ideal_data = batch[0]
+            opt_state, params, loss, fidelity = update_step(model.get_model_params(), opt_state, ideal_data)
+            model.set_model_params(params)
+
+            epoch_fidelities.append(float(fidelity))
+            epoch_losses.append(float(loss))
+            current_lr = schedule(i)
+            data_iterator.set_postfix_str(f"Fidelity (Ideal, Measured): {fidelity:.4e}, Loss: {loss:.4e}, LR: {current_lr:.4e}")
+        
+        mean_fidelity = np.mean(epoch_fidelities)
+        mean_loss = np.mean(epoch_losses)
+        print(f"Epoch {e+1} summary - Mean Fidelity: {mean_fidelity:.4e}, Mean Loss: {mean_loss:.4e}")
+
+
+# MODIFIED: Function signature updated with new arguments.
+def train_pqc_model_no_uncomp_optimized(
+    model, dataloader, optimizer, schedule,
+    static_circuit_executor, circuit_data, uncomp_circuit_ops, # <-- NEW ARGS
+    main_loss_fn=jax_fidelity_loss, epochs=1
+):
+    
+    no_noise_model = PennylaneNoisyGates(x_rad=0, z_rad=0, delta_x=0, delta_z=0, seed=0)
+
+    @jax.jit
+    def update_step(params, opt_state, ideal_data, simulated_ref):
+        """Perform a single update step for the model parameters given a precomputed reference output."""
+
+        def loss_fn(p):
+            # MODIFIED: The model call now requires the executor and circuit data.
+            measured = model(static_circuit_executor, ideal_data, circuit_data, params=p)
+            return main_loss_fn(simulated_ref, measured)
+
+        loss, grads = jax.value_and_grad(loss_fn)(params)
+        grads = jax.tree.map(lambda g: jnp.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), grads)
+        updates, opt_state = optimizer.update(grads, opt_state, params)
+        new_params = optax.apply_updates(params, updates)
+        new_params = jax.tree.map(lambda p: jnp.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0), new_params)
+
+        # Fidelity after parameter update
+        # MODIFIED: The model call is also updated here.
+        measured = model(static_circuit_executor, ideal_data, circuit_data, params=new_params)
+        fidelity = jax_pure_state_fidelity(simulated_ref, measured)
+
+        return opt_state, new_params, loss, fidelity
+
+    # --- The rest of the function has one minor change ---
+    opt_state = optimizer.init(model.get_model_params())
+    for e in range(epochs):
+        print(f"Epoch {e + 1}/{epochs}")
+        data_iterator = tqdm(dataloader, desc="Training", total=len(dataloader), leave=False, unit='batch')
+        
+        epoch_fidelities = []
+        epoch_losses = []
+
+        for i, batch in enumerate(data_iterator):
+            ideal_data = batch[0]
+
+            # Precompute the noiseless/ideal circuit output once outside the JIT step
+            # MODIFIED: Uses `uncomp_circuit_ops` passed as an argument, since the
+            # lightweight model no longer stores it.
+            simulated_ref = run_circuit_with_noise_model(uncomp_circuit_ops, ideal_data, no_noise_model, model.num_qubits, batched=True)
+
+            opt_state, params, loss, fidelity = update_step(model.get_model_params(), opt_state, ideal_data, simulated_ref)
+            model.set_model_params(params)
+
+            epoch_fidelities.append(float(fidelity))
+            epoch_losses.append(float(loss))
+            current_lr = schedule(i)
+            data_iterator.set_postfix_str(f"Fidelity (Ideal, Measured): {fidelity:.4e}, Loss: {loss:.4e}, LR: {current_lr:.4e}")
+        
+        mean_fidelity = np.mean(epoch_fidelities)
+        mean_loss = np.mean(epoch_losses)
+        print(f"Epoch {e+1} summary - Mean Fidelity: {mean_fidelity:.4e}, Mean Loss: {mean_loss:.4e}")
+
+
