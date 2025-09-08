@@ -38,7 +38,7 @@ def zxz_from_su2(U, eps=1e-12):
     U = U / (jnp.sqrt(jnp.linalg.det(U)) + eps)
     u11, u12, u21, u22 = U[0,0], U[0,1], U[1,0], U[1,1]
 
-    safe_abs_u11 = jnp.clip(jnp.abs(u11), 0.0, 1.0 - eps)
+    safe_abs_u11 = jnp.clip(jnp.abs(u11), 0.0, 1.0)
     beta = 2*jnp.arccos(safe_abs_u11)    
 
     # --- Calculate the results for all three potential cases ---
