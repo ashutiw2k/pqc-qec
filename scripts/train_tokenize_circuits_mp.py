@@ -439,9 +439,12 @@ def main():
             num_processes = int(resolved_workers)
             print(f"\nStarting parallel processing with {num_processes} cores (system={system_cpu_count}, configured={configured_mp_cores})...")
 
-            # Use the 'spawn' context for multiprocessing to ensure cross-platform compatibility
+            # Determine threads per worker: configurable via config, env, or sensible default
+            threads_per_worker = getattr(config, "threads_per_worker", None)
+            if threads_per_worker is None:
+                threads_per_worker = int(os.environ.get("THREADS_PER_WORKER", max(1, system_cpu_count // num_processes)))
             for _var in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS', 'NUMEXPR_NUM_THREADS', 'BLIS_NUM_THREADS', 'TBB_NUM_THREADS'):
-                os.environ.setdefault(_var, '1')
+                os.environ[_var] = str(threads_per_worker)
             
             pool = multiprocessing.get_context("spawn").Pool(processes=num_processes)
             
