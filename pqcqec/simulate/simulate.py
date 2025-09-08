@@ -5,6 +5,7 @@ from typing import List
 
 from ..circuits.modify import pennylane_state_embedding
 from ..noise.simple_noise import PennylaneNoisyGates
+from ..utils.constants import PENNYLANE_GATES
 
 def get_input_data(num_qubits, num_vals, seed=0):
     """Generate ideal data for a Pennylane circuit with angle embedding."""
@@ -38,3 +39,27 @@ def run_circuit_with_noise_model(circuit_ops:List, input_state:jnp.ndarray,
         return batched_circuit(input_state)
     else:
         return circuit(input_state)
+    
+
+def run_ideal_circuit(circuit_ops:List, input_state:jnp.ndarray, 
+                           num_qubits:int, 
+                           device='default.qubit', batched=False):
+
+    @qml.qnode(qml.device(device), interface='jax')
+    def circuit(input_state):
+        pennylane_state_embedding(input_state, num_qubits)
+        for op in circuit_ops:
+            gate, wires, param = op
+            # Apply the ideal gate:
+            PENNYLANE_GATES[gate](wires)
+            
+        return qml.state()
+
+    batched_circuit = jax.jit(jax.vmap(circuit, in_axes=(0)))
+
+    if batched:
+        return batched_circuit(input_state)
+    else:
+        return circuit(input_state)
+    
+

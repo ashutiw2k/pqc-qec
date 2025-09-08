@@ -53,7 +53,7 @@ def generate_random_circuit_list(num_qubits: int, num_gates: int, gate_dist:dict
         gate_q = QUBITS_FOR_GATES.get(gate)
         # gate_f = PENNYLANE_GATES.get(gate)
         q = random.sample(population=range(num_qubits), k=gate_q)
-        circuit_ops.append((gate, q))
+        circuit_ops.append((gate, q, [])) # Empty place holder for params, what the circuit sim expects. 
 
     return circuit_ops
 
@@ -64,7 +64,8 @@ def generate_random_circuit(num_qubits: int, num_gates: int, gate_dist:dict=None
         random.seed(seed)
 
     if gate_dist is None:
-        gate_dist = {gate:1/len(QISKIT_GATES) for gate in QISKIT_GATES}
+        gates = ['x', 'z', 'h', 'cx', 'cz']
+        gate_dist = {gate:1/len(gates) for gate in gates}
 
     if backend == 'qiskit':
         return generate_random_circuit_qiskit(num_qubits, num_gates, gate_dist)

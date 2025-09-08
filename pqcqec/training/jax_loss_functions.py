@@ -28,7 +28,8 @@ def jax_mixed_state_fidelity(rho: jnp.ndarray, sigma: jnp.ndarray) -> jnp.ndarra
     m_evals, m_evecs = jnp.linalg.eigh(M)
     sqrt_M = (m_evecs * jnp.sqrt(jnp.maximum(m_evals, 0.0))) @ m_evecs.conj().T
 
-    return jnp.real(jnp.trace(sqrt_M)) ** 2
+    # Numerical guard: ensure fidelity stays within [0, 1]
+    return jnp.clip(jnp.real(jnp.trace(sqrt_M)) ** 2, 0.0, 1.0)
 
 @jax.jit
 def jax_pure_state_fidelity(psi: jnp.ndarray, phi: jnp.ndarray) -> jnp.ndarray:
@@ -51,7 +52,8 @@ def jax_pure_state_fidelity(psi: jnp.ndarray, phi: jnp.ndarray) -> jnp.ndarray:
     overlap = jnp.vdot(psi, phi)
     fidelity = jnp.abs(overlap) ** 2
 
-    return fidelity.real  # Ensure scalar float32 (avoids accidental complex gradients)
+    # Numerical guard: clip to [0, 1] to avoid tiny overshoots
+    return jnp.clip(fidelity.real, 0.0, 1.0)
 
 @jax.jit
 def jax_l2_loss_ignore_global_phase(psi, phi):
@@ -90,7 +92,9 @@ def jax_fidelity_loss(ideal: jnp.ndarray, measured: jnp.ndarray) -> jnp.ndarray:
     """
     Fidelity-based loss: L = 1 - F(ideal, measured)
     """
-    return 1.0 - jax_pure_state_fidelity(ideal, measured)
+    F = jax_pure_state_fidelity(ideal, measured)
+    # Ensure non-negative loss even if F numerically exceeds 1 by eps
+    return jnp.maximum(0.0, 1.0 - F)
 
 @jax.jit
 def jax_mixed_fidelity_loss(ideal: jnp.ndarray, measured: jnp.ndarray) -> jnp.ndarray:
@@ -102,7 +106,8 @@ def jax_mixed_fidelity_loss(ideal: jnp.ndarray, measured: jnp.ndarray) -> jnp.nd
     rho = jnp.outer(psi, jnp.conj(psi))
     sigma = jnp.outer(phi, jnp.conj(phi))
 
-    return 1.0 - jax_mixed_state_fidelity(rho, sigma)
+    F = jax_mixed_state_fidelity(rho, sigma)
+    return jnp.maximum(0.0, 1.0 - F)
 
 @jax.jit
 def jax_density_trace_loss(psi: jnp.ndarray, phi: jnp.ndarray) -> jnp.ndarray:

@@ -2,7 +2,7 @@
 # from models.pqc_models import *
 
 import pennylane as qml
-from qiskit.circuit.library import XGate, HGate, ZGate, CXGate, CZGate
+from qiskit.circuit.library import XGate, HGate, ZGate, YGate, RXGate, RYGate, RZGate, CXGate, CZGate, CCXGate, SwapGate
 
 PQC_MAPPINGS = {
     # 'unique_rzrxrz' : {'qiskit': qiskit_PQC_RZRXRZ_unique, 'pennylane':pennylane_PQC_RZRXRZ_unique, 'mult':3},
@@ -22,7 +22,15 @@ PENNYLANE_MODELS = {
 
 
 
-QISKIT_GATES = {'x':XGate, 'h':HGate, 'z':ZGate, 'cx': CXGate, 'cz': CZGate}
+QISKIT_GATES = {'x':XGate, 'h':HGate, 'z':ZGate, 'y':YGate,
+                'rx': RXGate, 'ry': RYGate, 'rz': RZGate,
+                'cx': CXGate, 'cz': CZGate, 'swap': SwapGate, 'ccx': CCXGate}
+
 PENNYLANE_GATES = {'x':qml.PauliX, 'h':qml.Hadamard, 'z':qml.PauliZ, 'cx': qml.CNOT, 'cz': qml.CZ}
 
-QUBITS_FOR_GATES = {'x':1, 'h':1, 'z':1, 'cx': 2, 'cz':2}
+QUBITS_FOR_GATES = {'x':1, 'h':1, 'z':1, 'y':1,
+                    'rx': 1, 'ry': 1, 'rz': 1,
+                    'cx': 2, 'cy': 2, 'cz':2,
+                    'ccx': 3}
+
+GATE_IS_DIRECTIONAL = {'cx': True, 'cz': False, 'ccx': True, 'swap': False}  # True means control->target matters, False means it doesn't

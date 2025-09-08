@@ -38,12 +38,13 @@ def main():
     print(f"Final Fidelity (PQC): {np.mean(fidelity_pqc):.4e}")
 
     plt.figure()
-    plt.plot(fidelity_noisy, label="Noisy")
-    plt.plot(fidelity_pqc, label="PQC")
-    plt.xlabel("Experiment Number")
+    plt.plot(fidelity_noisy, label="Non-PQC", color='red')
+    plt.plot(fidelity_pqc, label="Interleaved-PQC", color='green')
+    plt.xlabel("Experiement State Index")
     plt.ylabel("Fidelity")
-    plt.title(f"Fidelity {config['gate_blocks']}g, {config['pqc_blocks']}b, {config['num_data']}n, {config['batch']}a")
-    plt.legend()
+    # plt.title(f"Fidelity Across Different Input States for fine-tuned Interleaved PQC", )
+    plt.legend(bbox_to_anchor=(0., 1.02, 1., .102), loc=3,
+            ncol=2, mode="expand", borderaxespad=0.)
     plt.savefig(os.path.join(config['figure_output'], f"Fidelity_{config['qubits'][0]}q_{config['gates'][0]}g_seed{seed}.png"))
 
 if __name__ == "__main__":

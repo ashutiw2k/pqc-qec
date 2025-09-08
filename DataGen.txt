@@ -1,0 +1,5 @@
+DataGen
+python scripts/train_tokenize_circuits_mp.py -q 3 -g 2 -b 1 -k 4 \\
+-o nogit/simple_data/ -e 3 -n 2500 -t 50 -a 10 --seed 1000 \\
+-d '{"h" : 0.5, "cx": 0.25, "x": 0.25}' \\
+-z "{"x_rad" : 0.0314,"z_rad": 0.0, "delta_x": 0.0, "delta_z": 0.0,}"
