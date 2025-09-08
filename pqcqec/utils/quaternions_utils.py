@@ -10,7 +10,10 @@ def normalize_quaternion(q, enforce_w_nonneg=True, eps=1e-8):
     # Sanitize to avoid NaN/Inf flowing into normalization under JIT/vmap
     q = jnp.nan_to_num(q, nan=0.0, posinf=0.0, neginf=0.0)
     norm = jnp.linalg.norm(q, axis=-1, keepdims=True)
-    q = q / (norm + eps)
+    # If norm is zero, set to default unit quaternion [1,0,0,0]
+    is_zero_norm = jnp.all(norm < eps)
+    default_q = jnp.array([1.0, 0.0, 0.0, 0.0], dtype=jnp.float32)
+    q = jnp.where(is_zero_norm, default_q, q / (norm + eps))
     if enforce_w_nonneg:
         sign = jnp.where(q[..., 0:1] < 0.0, -1.0, 1.0)
         q = sign * q
@@ -48,7 +51,11 @@ def zxz_from_su2(U, eps=1e-12):
     # Case 2: beta is near pi
     alpha_case2 = 0.0
     beta_case2 = jnp.pi
-    # CORRECTED: Added a negative sign
+    # CORRECTED: Added a negative sign.
+    # The negative sign is necessary for the gimbal lock case at β=π because
+    # the ZXZ decomposition becomes ambiguous at this boundary. The sign ensures
+    # that the resulting Euler angles correctly represent the rotation, matching
+    # the convention used for the generic case and avoiding a flipped angle assignment.
     gamma_case2 = _wrap_pi(-(jnp.angle(-u21) - jnp.angle(u12)))
 
     # Case 3: generic case
