@@ -51,7 +51,11 @@ def zxz_from_su2(U, eps=1e-12):
     # Case 2: beta is near pi
     alpha_case2 = 0.0
     beta_case2 = jnp.pi
-    # CORRECTED: Added a negative sign
+    # CORRECTED: Added a negative sign.
+    # The negative sign is necessary for the gimbal lock case at β=π because
+    # the ZXZ decomposition becomes ambiguous at this boundary. The sign ensures
+    # that the resulting Euler angles correctly represent the rotation, matching
+    # the convention used for the generic case and avoiding a flipped angle assignment.
     gamma_case2 = _wrap_pi(-(jnp.angle(-u21) - jnp.angle(u12)))
 
     # Case 3: generic case
