@@ -52,10 +52,14 @@ def zxz_from_su2(U, eps=1e-12):
     alpha_case2 = 0.0
     beta_case2 = jnp.pi
     # CORRECTED: Added a negative sign.
-    # The negative sign is necessary for the gimbal lock case at β=π because
-    # the ZXZ decomposition becomes ambiguous at this boundary. The sign ensures
-    # that the resulting Euler angles correctly represent the rotation, matching
-    # the convention used for the generic case and avoiding a flipped angle assignment.
+    # Gimbal lock case at β=π (180-degree rotation):
+    # In the ZXZ Euler decomposition, when β=π, the rotation corresponds to a 180-degree rotation about
+    # an axis in the x-y plane. At this boundary, the decomposition becomes ambiguous because multiple
+    # combinations of α and γ can represent the same physical rotation (the measure-zero boundary).
+    # The negative sign in the calculation of gamma_case2 is required to resolve this ambiguity and ensure
+    # that the resulting Euler angles match the convention used for the generic case (β≠0,π). Without the sign flip,
+    # the assignment of α and γ would be reversed, leading to an incorrect representation of the rotation.
+    # This correction follows the mathematical convention for ZXZ decomposition and ensures consistency across all cases.
     gamma_case2 = _wrap_pi(-(jnp.angle(-u21) - jnp.angle(u12)))
 
     # Case 3: generic case
