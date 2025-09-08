@@ -51,7 +51,7 @@ if [[ -n "$COUNTER2" ]] && ! [[ "$COUNTER2" =~ ^[0-9]+$ ]]; then
   exit 4
 fi
 
-SCALE=10000
+SCALE=1000
 
 if [[ -n "$COUNTER2" ]]; then
   START=$(( COUNTER1 * SCALE ))
