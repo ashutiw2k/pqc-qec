@@ -11,7 +11,7 @@ def normalize_quaternion(q, enforce_w_nonneg=True, eps=1e-8):
     q = jnp.nan_to_num(q, nan=0.0, posinf=0.0, neginf=0.0)
     norm = jnp.linalg.norm(q, axis=-1, keepdims=True)
     # If norm is zero, set to default unit quaternion [1,0,0,0]
-    is_zero_norm = jnp.all(norm < eps)
+    is_zero_norm = jnp.all(norm < eps, axis=-1, keepdims=True)
     default_q = jnp.array([1.0, 0.0, 0.0, 0.0], dtype=jnp.float32)
     q = jnp.where(is_zero_norm, default_q, q / (norm + eps))
     if enforce_w_nonneg:
