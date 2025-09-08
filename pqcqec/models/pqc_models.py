@@ -240,7 +240,11 @@ class StateInputModelInterleavedQuaternionModel:
     def set_model_params(self, new_params: jnp.ndarray):
         """Set the model parameters."""
         if jnp.isnan(new_params).any():
-            raise ValueError("New parameters contain NaNs.")
+            nan_indices = jnp.argwhere(jnp.isnan(new_params))
+            raise ValueError(
+                f"New parameters contain NaNs. Shape: {new_params.shape}. "
+                f"NaN indices: {nan_indices.tolist()}"
+            )
         self.quaternions = new_params.astype(jnp.float32)
 
     def get_pqc_params(self):
