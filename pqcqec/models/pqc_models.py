@@ -218,7 +218,7 @@ class StateInputModelInterleavedQuaternionModel:
                 if (i+1) % self.gate_blocks == 0:
                     # 2) Apply the PQC gates:
                     # print(f"Applying PQC block {i // self.gate_blocks + 1} with params: {pqc_params[i // self.gate_blocks]}")
-                    print(f'PQC Params Block Shape for {i+1} : {pqc_params.shape}')
+                    # print(f'PQC Params Block Shape for {i+1} : {pqc_params.shape}')
 
                     pqc_params_block = pqc_params[i // self.gate_blocks]
                     # self.pqc_arch(self.num_qubits, pqc_params_block)

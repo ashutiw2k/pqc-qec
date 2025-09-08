@@ -21,8 +21,8 @@ def normalize_quaternion(q, enforce_w_nonneg=True, eps=1e-8):
 
 def su2_from_quaternion(q):
     """U = w I - i (x σx + y σy + z σz) ∈ SU(2)."""
-    w, x, y, z = normalize_quaternion(q)
-    # w, x, y, z = q
+    q_norm = normalize_quaternion(q)
+    w, x, y, z = q_norm[..., 0], q_norm[..., 1], q_norm[..., 2], q_norm[..., 3]
     return jnp.array([[w - 1j*z, -1j*x - y],
                       [-1j*x + y, w + 1j*z]], dtype=jnp.complex64)
 
