@@ -401,23 +401,23 @@ def main():
                 pool.join()
 
             # Build the combined tokens file from per-seed JSONs
-            try:
-                tokens_file = os.path.join(data_dir, "circuit_tokens.json")
-                all_entries = []
-                # Read per-seed files in seed order if possible
-                for fname in sorted(os.listdir(per_seed_dir), key=lambda x: int(os.path.splitext(x)[0]) if x.endswith('.json') and os.path.splitext(x)[0].isdigit() else float('inf')):
-                    if not fname.endswith('.json'):
-                        continue
-                    fpath = os.path.join(per_seed_dir, fname)
-                    try:
-                        with open(fpath, 'r') as fr:
-                            all_entries.append(json.load(fr))
-                    except Exception:
-                        continue
-                write_json(tokens_file, all_entries)
-                print(f"Circuit tokens saved to {tokens_file}")
-            except Exception as e:
-                print(f"Warning: failed to write combined circuit_tokens.json: {e}")
+            # try:
+            #     tokens_file = os.path.join(data_dir, "circuit_tokens.json")
+            #     all_entries = []
+            #     # Read per-seed files in seed order if possible
+            #     for fname in sorted(os.listdir(per_seed_dir), key=lambda x: int(os.path.splitext(x)[0]) if x.endswith('.json') and os.path.splitext(x)[0].isdigit() else float('inf')):
+            #         if not fname.endswith('.json'):
+            #             continue
+            #         fpath = os.path.join(per_seed_dir, fname)
+            #         try:
+            #             with open(fpath, 'r') as fr:
+            #                 all_entries.append(json.load(fr))
+            #         except Exception:
+            #             continue
+            #     write_json(tokens_file, all_entries)
+            #     print(f"Circuit tokens saved to {tokens_file}")
+            # except Exception as e:
+            #     print(f"Warning: failed to write combined circuit_tokens.json: {e}")
 
             # Per-config stats file under this data_dir
             config_end = time.perf_counter()
