@@ -130,3 +130,5 @@ def train_pqc_model_no_uncomp(model, dataloader, optimizer, schedule, main_loss_
         mean_fidelity = np.mean(epoch_fidelities)
         mean_loss = np.mean(epoch_losses)
         print(f"Epoch {e+1} summary - Mean Fidelity: {mean_fidelity:.4e}, Mean Loss: {mean_loss:.4e}")
+
+
