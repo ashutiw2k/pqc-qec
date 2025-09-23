@@ -65,7 +65,7 @@ class SimpleCircuitDataset(Dataset):
 
 # CONSTANTS
 PQC_GATES = ['rz', 'rx', 'rz']
-DATA_PATH = 'nogit/no_uncomp/5q_100g_circuit_data/'
+DATA_PATH = 'nogit/no_uncomp/5q_500g_circuit_data/'
 GOOD_DATA_PATH = DATA_PATH + 'per_seed_data/'
 BAD_DATA_PATH = DATA_PATH + 'poor_fidelity/'
 CONFIG_PATH = DATA_PATH + 'config.json'
@@ -98,6 +98,8 @@ BATCH_SIZE = 64
 
 LEARNING_RATE = 5e-6
 WEIGHT_DECAY = 1e-3
+
+NUM_STATES = 100  # Number of random input states to use for fidelity estimation during training
 
 def main():
 
@@ -166,7 +168,8 @@ def main():
         epochs=5,
         grad_clip=1.0,
         noise_dist=NOISE_DIST,
-        tokenizer=qc_tokenizer
+        tokenizer=qc_tokenizer,
+        num_input_states=NUM_STATES
     )
 
     # Need to plot loss curves HERE.
