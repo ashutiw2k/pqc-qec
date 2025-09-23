@@ -125,13 +125,13 @@ def train_epoch_torch(model: nn.Module, dataloader,
 def train_torch(model: nn.Module, train_loader, val_loader,
                 optimizer: torch.optim.Optimizer, loss_fn,
                 device: torch.device, noise_dist: dict,
-                tokenizer: SimpleCircuitTokenizer, epochs: int = 10,
+                tokenizer: SimpleCircuitTokenizer, epochs: int = 10, num_input_states: int = 10,
                 grad_clip: Optional[float] = None) -> Tuple[List[float], List[float]]:
     """Main training loop using the rewritten PyTorch-native functions."""
     train_hist, val_hist = [], []
     for epoch in range(1, epochs + 1):
         tr_loss = train_epoch_torch(model, train_loader, optimizer, loss_fn, device,
-                                  noise_dist, tokenizer, grad_clip)
+                                  noise_dist, tokenizer, num_input_states, grad_clip)
         va_loss = evaluate_epoch_torch(model, val_loader, loss_fn, device,
                                      noise_dist, tokenizer)
         train_hist.append(tr_loss)
