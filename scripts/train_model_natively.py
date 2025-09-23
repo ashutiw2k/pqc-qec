@@ -65,7 +65,7 @@ class SimpleCircuitDataset(Dataset):
 
 # CONSTANTS
 PQC_GATES = ['rz', 'rx', 'rz']
-DATA_PATH = '../../nogit/no_uncomp/5q_100g_circuit_data/'
+DATA_PATH = 'nogit/no_uncomp/5q_100g_circuit_data/'
 GOOD_DATA_PATH = DATA_PATH + 'per_seed_data/'
 BAD_DATA_PATH = DATA_PATH + 'poor_fidelity/'
 CONFIG_PATH = DATA_PATH + 'config.json'
@@ -104,7 +104,7 @@ def main():
     good_data = []
 
     for i, filename in enumerate(os.listdir(GOOD_DATA_PATH)):
-        if i > 1000:
+        if i > 10000:
             break
         with open(GOOD_DATA_PATH + filename, 'r') as f:
             token_dict = json.load(f)
@@ -171,7 +171,7 @@ def main():
 
     # Need to plot loss curves HERE.
 
-    
+
 
     noise_model = PennylaneNoisyGates(**NOISE_DIST)
     no_noise_model = PennylaneNoisyGates(0,0,0,0)
