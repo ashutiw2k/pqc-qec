@@ -3,6 +3,8 @@ import jax.numpy as jnp
 import pennylane as qml
 from typing import List
 
+import torch
+
 from ..circuits.modify import pennylane_state_embedding
 from ..noise.simple_noise import PennylaneNoisyGates
 from ..utils.constants import PENNYLANE_GATES
@@ -63,3 +65,22 @@ def run_ideal_circuit(circuit_ops:List, input_state:jnp.ndarray,
         return circuit(input_state)
     
 
+
+def run_circuit_with_noise_model_torch(circuit_ops: List,
+                                       input_state: torch.Tensor,
+                                       noise_model: PennylaneNoisyGates,
+                                       num_qubits: int,
+                                       device='default.qubit'):
+    """Runs a quantum circuit with a noise model using PennyLane and PyTorch."""
+    qdevice = qml.device(device, wires=num_qubits)
+
+    @qml.qnode(qdevice, interface='torch', diff_method='backprop')
+    def circuit(state):
+        pennylane_state_embedding(state, num_qubits)
+        for op in circuit_ops:
+            gate, wires, param = op
+            noise_model.apply_gate(gate, wires, angle=param)
+        return qml.state()
+
+    # The function now directly returns the output of the torch interface qnode
+    return circuit(input_state)
