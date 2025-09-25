@@ -1,0 +1,130 @@
+Number of good data samples: 10000
+
+--- Specific Single-Node Timings ---
+Execution time for one node (100 states): 0.3895 seconds
+Execution time for one node (10 states): 0.3410 seconds
+Wrote profile results to 'test_simple_circuit_exec_profiling.py.lprof'
+Timer unit: 1e-06 s
+
+Total time: 0.120358 s
+File: scripts/test_simple_circuit_exec_profiling.py
+Function: simple_circuit_generator at line 106
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   106                                           @profile
+   107                                           def simple_circuit_generator(circuit_ops, num_qubits, x_noise, z_noise):
+   108                                               """Generates a PennyLane QNode for a given quantum circuit."""
+   109      1000      46723.0     46.7     38.8      qdevice = qml.device("default.qubit", wires=num_qubits)
+   110                                           
+   111      2000      72841.0     36.4     60.5      @qml.qnode(qdevice)
+   112      2000        503.0      0.3      0.4      def circuit(state):
+   113                                                   @profile
+   114                                                   def prepare_state():
+   115                                                       qml.StatePrep(state, wires=range(num_qubits), normalize=True)
+   116                                           
+   117                                                       for i, op in enumerate(circuit_ops):
+   118                                                           gate, wires, param = op
+   119                                                           # PENNYLANE_GATES[gate](wires=wires)
+   120                                                           match gate:
+   121                                                               case 'cx':
+   122                                                                   qml.CNOT(wires=wires)
+   123                                                               case 'cz':
+   124                                                                   qml.CZ(wires=wires)
+   125                                                               case 'x':
+   126                                                                   qml.PauliX(wires=wires)
+   127                                                               case 'z':
+   128                                                                   qml.PauliZ(wires=wires)
+   129                                                               case 'h':
+   130                                                                   qml.Hadamard(wires=wires)
+   131                                                                   
+   132                                                           for wire in wires:
+   133                                                               qml.RX(x_noise[i], wires=[wire])
+   134                                                               qml.RZ(z_noise[i], wires=[wire])
+   135                                                       return qml.state()
+   136      1000        291.0      0.3      0.2          return prepare_state()
+   137                                               return circuit
+
+Total time: 89.6041 s
+File: scripts/test_simple_circuit_exec_profiling.py
+Function: simple_circuit_generator.<locals>.circuit.<locals>.prepare_state at line 113
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   113                                                   @profile
+   114                                                   def prepare_state():
+   115      2002     377946.0    188.8      0.4              qml.StatePrep(state, wires=range(num_qubits), normalize=True)
+   116                                           
+   117   1003002     280127.0      0.3      0.3              for i, op in enumerate(circuit_ops):
+   118   1001000     253691.0      0.3      0.3                  gate, wires, param = op
+   119                                                           # PENNYLANE_GATES[gate](wires=wires)
+   120   1001000     184202.0      0.2      0.2                  match gate:
+   121   1001000     195522.0      0.2      0.2                      case 'cx':
+   122    199976   13549543.0     67.8     15.1                          qml.CNOT(wires=wires)
+   123    801024     140548.0      0.2      0.2                      case 'cz':
+   124    201894   15874661.0     78.6     17.7                          qml.CZ(wires=wires)
+   125    599130     110727.0      0.2      0.1                      case 'x':
+   126    200076    3188198.0     15.9      3.6                          qml.PauliX(wires=wires)
+   127    399054      70001.0      0.2      0.1                      case 'z':
+   128    199428    3189852.0     16.0      3.6                          qml.PauliZ(wires=wires)
+   129    199626      33736.0      0.2      0.0                      case 'h':
+   130    199626    3198700.0     16.0      3.6                          qml.Hadamard(wires=wires)
+   131   2403870     762763.0      0.3      0.9                          
+   132   1402870   22691721.0     16.2     25.3                  for wire in wires:
+   133   1402870   25451624.0     18.1     28.4                      qml.RX(x_noise[i], wires=[wire])
+   134      2002      50571.0     25.3      0.1                      qml.RZ(z_noise[i], wires=[wire])
+   135                                                       return qml.state()
+
+Total time: 761.83 s
+File: scripts/test_simple_circuit_exec_profiling.py
+Function: main at line 138
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   138                                           
+   139                                           @profile
+   140                                           def main():
+   141         1          1.0      1.0      0.0      """Main execution script."""
+   142         1         10.0     10.0      0.0      good_data = []
+   143     10001       5934.0      0.6      0.0      if os.path.exists(GOOD_DATA_PATH):
+   144     10001       2063.0      0.2      0.0          for i, filename in enumerate(os.listdir(GOOD_DATA_PATH)):
+   145     20000     227450.0     11.4      0.0              if i >= 10000: break
+   146     10000    5445516.0    544.6      0.7              with open(os.path.join(GOOD_DATA_PATH, filename), 'r') as f:
+   147                                                           good_data.append(json.load(f)['base_circuit_tokens'])
+   148                                               else:
+   149                                                   print(f"Warning: Data path not found: {GOOD_DATA_PATH}.")
+   150                                                   good_data = [[['h', [0], None], ['cx', [0, 1], None]] for _ in range(MAX_CIRCUITS)]
+   151         1          6.0      6.0      0.0  
+   152                                               print(f"Number of good data samples: {len(good_data)}")
+   153         1         10.0     10.0      0.0  
+   154         1          8.0      8.0      0.0      input_states = np.zeros((100, 2**NUM_QUBITS), dtype=np.complex128)
+   155         1         27.0     27.0      0.0      input_states[:, 0] = 1.0
+   156         1          4.0      4.0      0.0      x_noise = np.ones(NUM_GATES) * 0.01
+   157                                               z_noise = np.ones(NUM_GATES) * 0.01
+   158         1          1.0      1.0      0.0  
+   159         2         56.0     28.0      0.0      circuit_nodes = []
+   160      1001      18169.0     18.2      0.0      with performance_profile("Phase 1: Circuit Creation"):
+   161      1000     123980.0    124.0      0.0          for data in tqdm(good_data[:MAX_CIRCUITS], desc="Creating circuits"):
+   162                                                       circuit_nodes.append(simple_circuit_generator(data, NUM_QUBITS, x_noise, z_noise))
+   163         1          0.0      0.0      0.0      
+   164                                               if not circuit_nodes:
+   165                                                   print("No circuits created. Exiting.")
+   166                                                   return
+   167         2         19.0      9.5      0.0          
+   168      1001     207823.0    207.6      0.0      with performance_profile("Phase 2: JIT Compilation / Warm-up"):
+   169      1000  353521552.0 353521.6     46.4          for exec_node in tqdm(circuit_nodes, desc="Warming up"):
+   170                                                       _ = exec_node(input_states[0])
+   171         2          9.0      4.5      0.0  
+   172      1001     234490.0    234.3      0.0      with performance_profile("Phase 3: Main Execution (100 States)"):
+   173      1000  401312617.0 401312.6     52.7          for exec_node in tqdm(circuit_nodes, desc="Executing all states"):
+   174                                                       _ = exec_node(input_states)
+   175         1          3.0      3.0      0.0              
+   176         1          1.0      1.0      0.0      print("\n--- Specific Single-Node Timings ---")
+   177         1     389506.0 389506.0      0.1      start_time = time.time()
+   178         1          7.0      7.0      0.0      circuit_nodes[0](input_states)
+   179                                               print(f"Execution time for one node (100 states): {time.time() - start_time:.4f} seconds")
+   180         1          0.0      0.0      0.0  
+   181         1     340964.0 340964.0      0.0      start_time = time.time()
+   182         1         10.0     10.0      0.0      circuit_nodes[0](input_states[:10])
+   183                                               print(f"Execution time for one node (10 states): {time.time() - start_time:.4f} seconds")
+

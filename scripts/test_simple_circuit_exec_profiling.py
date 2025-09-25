@@ -101,24 +101,40 @@ except FileNotFoundError:
 
 NUM_QUBITS = CONFIG.get("qubits", [5])[0]
 NUM_GATES = 500
-MAX_CIRCUITS = 1000
+MAX_CIRCUITS = 100
+
 
 @profile
 def simple_circuit_generator(circuit_ops, num_qubits, x_noise, z_noise):
     """Generates a PennyLane QNode for a given quantum circuit."""
     qdevice = qml.device("default.qubit", wires=num_qubits)
 
-    @profile
     @qml.qnode(qdevice)
     def circuit(state):
-        qml.StatePrep(state, wires=range(num_qubits), normalize=True)
-        for i, op in enumerate(circuit_ops):
-            gate, wires, param = op
-            PENNYLANE_GATES[gate](wires=wires)
-            for wire in wires:
-                qml.RX(x_noise[i], wires=[wire])
-                qml.RZ(z_noise[i], wires=[wire])
-        return qml.state()
+        @profile
+        def prepare_state():
+            qml.StatePrep(state, wires=range(num_qubits), normalize=True)
+
+            for i, op in enumerate(circuit_ops):
+                gate, wires, param = op
+                # PENNYLANE_GATES[gate](wires=wires)
+
+                if gate == 'cx':
+                    qml.CNOT(wires=wires)
+                elif gate == 'cz':
+                    qml.CZ(wires=wires)
+                elif gate == 'x':
+                    qml.PauliX(wires=wires)
+                elif gate == 'z':
+                    qml.PauliZ(wires=wires)
+                elif gate == 'h':
+                    qml.Hadamard(wires=wires)
+
+                for wire in wires:
+                    qml.RX(x_noise[i], wires=[wire])
+                    qml.RZ(z_noise[i], wires=[wire])
+            return qml.state()
+        return prepare_state()
     return circuit
 
 @profile
@@ -150,22 +166,22 @@ def main():
         print("No circuits created. Exiting.")
         return
         
-    with performance_profile("Phase 2: JIT Compilation / Warm-up"):
-        for exec_node in tqdm(circuit_nodes, desc="Warming up"):
-            _ = exec_node(input_states[0])
+    # with performance_profile("Phase 2: JIT Compilation / Warm-up"):
+    #     for exec_node in tqdm(circuit_nodes, desc="Warming up"):
+    #         _ = exec_node(input_states[0])
 
     with performance_profile("Phase 3: Main Execution (100 States)"):
         for exec_node in tqdm(circuit_nodes, desc="Executing all states"):
             _ = exec_node(input_states)
             
-    print("\n--- Specific Single-Node Timings ---")
-    start_time = time.time()
-    circuit_nodes[0](input_states)
-    print(f"Execution time for one node (100 states): {time.time() - start_time:.4f} seconds")
+    # print("\n--- Specific Single-Node Timings ---")
+    # start_time = time.time()
+    # circuit_nodes[0](input_states)
+    # print(f"Execution time for one node (100 states): {time.time() - start_time:.4f} seconds")
 
-    start_time = time.time()
-    circuit_nodes[0](input_states[:10])
-    print(f"Execution time for one node (10 states): {time.time() - start_time:.4f} seconds")
+    # start_time = time.time()
+    # circuit_nodes[0](input_states[:10])
+    # print(f"Execution time for one node (10 states): {time.time() - start_time:.4f} seconds")
 
 if __name__ == "__main__":
     main()
