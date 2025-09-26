@@ -10,7 +10,7 @@ from ..noise.simple_noise import PennylaneNoisyGates
 from ..utils.constants import PENNYLANE_GATES
 
 def get_input_data(num_qubits, num_vals, seed=0):
-    """Generate ideal data for a Pennylane circuit with angle embedding."""
+    """Generate ideal data for a Pennylane circuit with state embedding."""
 
     key_real, key_imag = jax.random.split(jax.random.PRNGKey(seed))
 
