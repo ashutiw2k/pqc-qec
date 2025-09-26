@@ -129,9 +129,9 @@ def main():
     test_size = total_size - train_size - val_size
     qc_train_dataset, qc_val_dataset, qc_test_dataset = torch.utils.data.random_split(qc_good_dataset, [train_size, val_size, test_size])
 
-    qc_train_dataloader = DataLoader(qc_train_dataset, batch_size=BATCH_SIZE, shuffle=True, )
-    qc_val_dataloader = DataLoader(qc_val_dataset, batch_size=BATCH_SIZE, shuffle=False, )
-    qc_test_dataloader = DataLoader(qc_test_dataset, shuffle=False, )
+    qc_train_dataloader = DataLoader(qc_train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=12)
+    qc_val_dataloader = DataLoader(qc_val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=12)
+    qc_test_dataloader = DataLoader(qc_test_dataset, shuffle=False, num_workers=12)
 
     simple_model = SimpleTransformer(vocab_size=qc_tokenizer.vocab_size,
                                   out_shape=(int(NUM_GATES//GATE_BLOCKS), NUM_QUBITS, len(PQC_GATES)),
