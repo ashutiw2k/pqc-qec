@@ -26,9 +26,12 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
 # ================= Settings =================
+torch.cuda.set_per_process_memory_fraction(0.8)  # Use only 80% of GPU memory
+torch.cuda.empty_cache()
+
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 DTYPE = torch.complex64
-MAX_BASE_LEN=500; MAX_PARAM=75; MAX_QUBITS=5
+MAX_BASE_LEN=500; MAX_PARAM=3000; MAX_QUBITS=10
 EMB_DIM=768; NUM_LAYERS=8; NUM_HEADS=12; FF_DIM=EMB_DIM*4; DROP=0.1
 K_RANDOM=100
 
@@ -49,7 +52,7 @@ FAST_NOISE_SCHEDULE=True
 PACK_REF_STATES=True
 VERBOSE_PRECOMP_TIMINGS=True
 PARAM_CHECKPOINT=False  # 暂关 checkpoint；稳定后可重开
-DATA_PATH='A:/wings/transformers/data/5q_500_2000g_no_uncomp_circuit_data/5q_500g_circuit_data_processed'; SEED=42
+DATA_PATH='nogit/circuit_tokens/no_uncomp/10q_1000g_circuit_data/per_seed_data/'; SEED=42
 AUX_ANGLE_LOSS=False; AUX_ANGLE_WEIGHT=0.05
 PRINT_INTERVAL=50
 DIFF_FIDELITY=True  # 训练主损可反传：基座+噪声 no_grad，参数门可微
@@ -559,9 +562,9 @@ class CircuitDataset(Dataset):
             return
         def process_obj(o:dict):
             # New token format
-            if 'base_circuit_tokens' in o and 'pqc_circuit_tokens' in o:
+            if 'base_circuit_tokens' in o: # or 'pqc_circuit_tokens' in o:
                 base_tokens = o['base_circuit_tokens']
-                pqc_tokens  = o['pqc_circuit_tokens']
+                pqc_tokens  = [] # o['pqc_circuit_tokens']
                 base_gates=[]; base_q1=[]; base_q2=[]
                 for tok in base_tokens:
                     g=tok[0]; qs=tok[1]
@@ -591,7 +594,7 @@ class CircuitDataset(Dataset):
                         q = qs[0] if qs else 0
                         ang = params[0] if params else 0.0
                         param_gates.append(g); param_qubits.append(q); after_list.append(last_base_idx); param_angles.append(ang)
-                n_q=o.get('n_qubits')
+                n_q=o.get('n_qubits', 10)
                 if n_q is None:
                     qs_all=[*base_q1,*[q for q in base_q2 if q>=0],*param_qubits]
                     n_q=(max(qs_all)+1) if qs_all else 1
