@@ -59,7 +59,7 @@ idle_noise = np.random.rand(num_gates).astype(np.float32)
 print(f"\nbuild_idle_qubit_circuit (with different idle_threshold values):")
 print("-" * 60)
 
-for threshold in [1, 2, 5, 10]:
+for threshold in [5, 10, 20, 50]:
     start = time.perf_counter()
     for _ in range(100):
         gate_ids, w1, w2, theta = build_idle_qubit_circuit(circuit_ops, num_qubits, idle_noise, idle_threshold=threshold)

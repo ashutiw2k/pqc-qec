@@ -119,19 +119,6 @@ def build_regularnoisy_circuit(circuit_ops, x_noise:np.ndarray, z_noise:np.ndarr
     --------
     tuple of (gate_ids, wire1, wire2, theta)
         Compiled circuit arrays from build_circuit() with noise gates inserted
-        
-    Example:
-    --------
-    >>> ops = [('h', [0], []), ('cx', [0, 1], [])]
-    >>> x_noise = np.array([0.01, 0.02])
-    >>> z_noise = np.array([0.01, 0.02])
-    >>> # Results in: H(0), RX(0, 0.01), RZ(0, 0.01), CX(0,1), RX(0, 0.02), RZ(0, 0.02), RX(1, 0.02), RZ(1, 0.02)
-    
-    Notes:
-    ------
-    - Noise arrays must have length >= len(circuit_ops)
-    - For 2-qubit gates, the same noise value is applied to both qubits
-    - Pre-allocates list for better memory efficiency
     """
     # Pre-calculate total size: original gates + 2 noise gates per qubit per original gate
     total_qubits = sum(len(op[1]) for op in circuit_ops)
@@ -180,24 +167,6 @@ def build_idle_qubit_circuit(circuit_ops, num_qubits, idle_noise:np.ndarray, idl
     --------
     tuple of (gate_ids, wire1, wire2, theta)
         Compiled circuit arrays from build_circuit() with idle noise gates inserted
-        
-    Example:
-    --------
-    >>> ops = [('h', [0], []), ('h', [1], []), ('h', [2], []), ('cx', [0, 1], [])]
-    >>> idle_noise = np.array([0.01, 0.01, 0.01, 0.02])
-    >>> # With idle_threshold=2:
-    >>> # Gate 0: H(0) - no noise (qubits 1,2 idle for only 1 gate)
-    >>> # Gate 1: H(1) - qubit 2 gets noise (idle for 2 gates), qubit 0 was just used
-    >>> # Gate 2: H(2) - qubits 0,1 get noise (each idle for 2 gates)
-    >>> # Gate 3: CX(0,1) - qubit 2 gets noise (idle for 2 gates)
-    
-    Notes:
-    ------
-    - More realistic noise model than applying noise at every gate
-    - Significantly reduces circuit size for higher idle_threshold values
-    - Tracks idle duration per qubit across the circuit
-    - Single-pass algorithm: tracks and builds simultaneously for optimal performance
-    - ~20-30% faster than two-pass approaches
     """
     # Track how many consecutive gates each qubit has been idle
     idle_counts = np.zeros(num_qubits, dtype=np.int32)
@@ -209,24 +178,31 @@ def build_idle_qubit_circuit(circuit_ops, num_qubits, idle_noise:np.ndarray, idl
         active_qubits = set(op[1])
         
         # Determine which qubits get noise (idle >= threshold)
-        qubits_to_noise = []
-        for q in range(num_qubits):
-            if q not in active_qubits:
-                idle_counts[q] += 1
-                if idle_counts[q] >= idle_threshold:
-                    qubits_to_noise.append(q)
-            else:
-                # Reset counter when qubit becomes active
-                idle_counts[q] = 0
+        # Create boolean mask for active qubits
+        is_active = np.zeros(num_qubits, dtype=bool)
+        is_active[list(active_qubits)] = True
+        # print(is_active)
         
+        # Update idle counts: increment for inactive qubits, reset for active ones
+        idle_counts = np.where(is_active, 0, idle_counts + 1)
+        # print(idle_counts)
+        
+        # Find qubits that need noise (idle >= threshold and not active)
+        qubits_to_noise = np.where((idle_counts >= idle_threshold) & ~is_active)[0]
         # Insert the current gate
         noisy_circuit_ops.append(op)
         
+        # print(qubits_to_noise)
+
+        idle_counts[qubits_to_noise] = 0  # Reset idle counts for qubits that are getting noise
+
         # Add noise gates for idle qubits (sorted for deterministic order)
-        if qubits_to_noise:
+        if np.any(qubits_to_noise):
             noise_val = idle_noise[i]
             for q in sorted(qubits_to_noise):
                 noisy_circuit_ops.append(('rx', [q], [noise_val]))
                 noisy_circuit_ops.append(('rz', [q], [noise_val]))
 
+
+    # exit(0)
     return build_circuit(noisy_circuit_ops)
