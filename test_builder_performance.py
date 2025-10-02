@@ -3,7 +3,7 @@ Performance test to demonstrate the improvements in build_circuit functions.
 """
 import numpy as np
 import time
-from pqcqec.noise.builder import build_circuit, build_regularnoisy_circuit, build_idle_qubit_circuit
+from pqcqec.noise.builder import build_circuit, build_regular_noisy_circuit, build_idle_qubit_circuit
 
 # Generate a large test circuit
 np.random.seed(42)
@@ -43,7 +43,7 @@ z_noise = np.random.rand(num_gates).astype(np.float32)
 
 start = time.perf_counter()
 for _ in range(100):
-    gate_ids, w1, w2, theta = build_regularnoisy_circuit(circuit_ops, x_noise, z_noise)
+    gate_ids, w1, w2, theta = build_regular_noisy_circuit(circuit_ops, x_noise, z_noise)
 end = time.perf_counter()
 avg_time_noisy = (end - start) / 100
 
