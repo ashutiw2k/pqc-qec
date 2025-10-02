@@ -340,7 +340,24 @@ def build_circuit_with_pqc(circuit_ops, num_qubits, gate_blocks, pqc_gates, pqc_
         logical_insertion_points = np.arange(gate_blocks - 1, num_logical_gates, gate_blocks)
         
         # Map back to actual circuit indices
-        insertion_indices = logical_indices[logical_insertion_points] if len(logical_insertion_points) > 0 else np.array([], dtype=np.int32)
+        # BUT: we need to insert AFTER the logical gate AND its associated noise gates
+        # Find the last noise gate that follows each logical gate
+        insertion_indices = []
+        for logical_point in logical_insertion_points:
+            logical_gate_idx = logical_indices[logical_point]
+            
+            # Scan forward to find where noise gates end (next logical gate or end of circuit)
+            insert_after_idx = logical_gate_idx
+            for j in range(logical_gate_idx + 1, num_base_gates):
+                if logical_mask[j]:
+                    # Hit next logical gate, insert before it
+                    break
+                # This is a noise gate, continue scanning
+                insert_after_idx = j
+            
+            insertion_indices.append(insert_after_idx)
+        
+        insertion_indices = np.array(insertion_indices, dtype=np.int32)
         num_insertions = len(insertion_indices)
     else:
         # Original behavior: count all gates
@@ -431,6 +448,92 @@ def build_circuit_with_pqc(circuit_ops, num_qubits, gate_blocks, pqc_gates, pqc_
     return circuit_with_pqc
 
 
+
+def build_circuit_with_pqc_simplified(circuit_ops, num_qubits, gate_blocks, pqc_gates, pqc_params, 
+                                      dtype=np.float32, return_numba=False, ignore_noise_gates=False, 
+                                      return_pqc_map=False):
+    """
+    Simplified version: Build circuit with PQC layers interleaved at specified intervals.
+    
+    Key simplifications:
+    1. Single-pass construction instead of pre-computing segment arrays
+    2. Helper function extracts insertion point logic
+    3. PQC map built during main loop instead of second pass
+    4. Cleaner separation of concerns
+    """
+    from pqcqec.noise.builder import build_circuit
+    
+    # Helper: Determine insertion indices based on gate counting logic
+    def get_insertion_indices():
+        if not ignore_noise_gates:
+            # Simple case: insert after every gate_blocks gates
+            return np.arange(gate_blocks - 1, len(circuit_ops), gate_blocks)
+        
+        # Complex case: count only non-noise gates, insert after noise trailing each logical gate
+        logical_indices = [i for i, op in enumerate(circuit_ops) 
+                          if not (len(op) > 3 and isinstance(op[3], dict) and op[3].get('noise', False))]
+        
+        insertion_points = []
+        for idx in range(gate_blocks - 1, len(logical_indices), gate_blocks):
+            logical_gate_idx = logical_indices[idx]
+            # Scan forward past trailing noise gates
+            insert_after = logical_gate_idx
+            for j in range(logical_gate_idx + 1, len(circuit_ops)):
+                if j in logical_indices:
+                    break  # Hit next logical gate
+                insert_after = j
+            insertion_points.append(insert_after)
+        
+        return np.array(insertion_points, dtype=np.int32)
+    
+    # Calculate where to insert PQC blocks
+    insertion_indices = get_insertion_indices()
+    num_insertions = len(insertion_indices)
+    
+    # Validate parameters
+    if pqc_params.shape[0] != num_insertions:
+        raise ValueError(
+            f"num_pqc_blocks mismatch! Got {pqc_params.shape[0]}, need {num_insertions}.\n"
+            f"PQC inserted after gate indices: {insertion_indices.tolist()}"
+        )
+    
+    # Build circuit with PQC in single pass
+    circuit_with_pqc = []
+    pqc_map = [] if return_pqc_map else None
+    insertion_set = set(insertion_indices)  # O(1) lookup
+    pqc_block_idx = 0
+    
+    for i, op in enumerate(circuit_ops):
+        # Add base gate (strip metadata tags)
+        circuit_with_pqc.append(op[:3] if len(op) > 3 else op)
+        
+        # Insert PQC block after this gate if it's an insertion point
+        if i in insertion_set:
+            block_params = pqc_params[pqc_block_idx]
+            
+            # Add PQC gates for all qubits
+            for q in range(num_qubits):
+                for g_idx, gate_name in enumerate(pqc_gates):
+                    circuit_with_pqc.append((gate_name, [q], [block_params[q, g_idx]]))
+                    
+                    # Track PQC parameter mapping if requested
+                    if return_pqc_map:
+                        compiled_idx = len(circuit_with_pqc) - 1
+                        pqc_map.append((pqc_block_idx, q, g_idx, compiled_idx))
+            
+            pqc_block_idx += 1
+    
+    # Return in requested format
+    if return_numba:
+        result = build_circuit(circuit_with_pqc, dtype=dtype)
+        if return_pqc_map:
+            return result + (np.array(pqc_map, dtype=np.int32),)
+        return result
+    
+    return circuit_with_pqc
+
+
+
 def create_pqc_circuit_template(circuit_ops, num_qubits, gate_blocks, pqc_gates, num_pqc_blocks, dtype=np.float32, ignore_noise_gates=False):
     """
     Create a PQC circuit template with placeholder parameters.
@@ -516,6 +619,41 @@ def create_pqc_circuit_template(circuit_ops, num_qubits, gate_blocks, pqc_gates,
     }
 
 
+
+def create_pqc_circuit_template_simplified(circuit_ops, num_qubits, gate_blocks, pqc_gates, num_pqc_blocks, 
+                                           dtype=np.float32, ignore_noise_gates=False):
+    """
+    Simplified template creation - same as original but calls simplified builder.
+    
+    Creates a template dictionary that can be rapidly updated with new PQC parameters.
+    This is the companion to build_circuit_with_pqc_simplified for training loops.
+    """
+    from pqcqec.noise.builder import build_circuit
+    
+    # Build initial circuit with dummy parameters
+    dummy_params = np.zeros((num_pqc_blocks, num_qubits, len(pqc_gates)), dtype=dtype)
+    
+    # Build the full circuit to get structure AND PQC parameter map
+    gate_ids_init, w1_init, w2_init, theta_init, pqc_param_map = build_circuit_with_pqc_simplified(
+        circuit_ops, num_qubits, gate_blocks, pqc_gates, dummy_params, 
+        dtype=dtype, return_numba=True, ignore_noise_gates=ignore_noise_gates,
+        return_pqc_map=True
+    )
+    
+    return {
+        'gate_ids': gate_ids_init,
+        'wire1': w1_init,
+        'wire2': w2_init,
+        'theta': theta_init,
+        'pqc_param_map': pqc_param_map,
+        'num_qubits': num_qubits,
+        'num_pqc_gates': len(pqc_gates),
+        'num_pqc_blocks': num_pqc_blocks,
+        'dtype': dtype
+    }
+
+
+
 def update_pqc_circuit_template(template, pqc_params):
     """
     Update PQC circuit template with new parameters (ultra-fast).
@@ -575,3 +713,72 @@ def update_pqc_circuit_template(template, pqc_params):
     theta[theta_indices] = pqc_params[block_indices, qubit_indices, gate_indices]
     
     return gate_ids, wire1, wire2, theta
+
+def decompile_circuit(gate_ids, wire1, wire2, theta):
+    """
+    Convert Numba-compatible circuit arrays back to high-level circuit operations.
+    
+    This function reverses the compilation process, converting the parallel arrays
+    used by Numba-compiled simulators back into human-readable circuit operations.
+    Useful for debugging, visualization, and analysis.
+    
+    Parameters:
+    -----------
+    gate_ids : np.ndarray (int32)
+        Gate type identifiers
+    wire1 : np.ndarray (int32)
+        Primary qubit indices (target for 1q, control for 2q)
+    wire2 : np.ndarray (int32)
+        Secondary qubit indices (-1 for 1q, target for 2q)
+    theta : np.ndarray (float)
+        Rotation angles (0.0 for non-rotation gates)
+        
+    Returns:
+    --------
+    list of tuples
+        Circuit operations in format (gate_name, [qubits], [params])
+        Same format accepted by build_circuit()
+        
+    Example:
+    --------
+    >>> # Compile circuit
+    >>> ops = [('h', [0], []), ('cx', [0, 1], []), ('rz', [1], [0.5])]
+    >>> gate_ids, w1, w2, theta = build_circuit(ops)
+    >>> 
+    >>> # Decompile back
+    >>> recovered_ops = decompile_circuit(gate_ids, w1, w2, theta)
+    >>> assert ops == recovered_ops
+    
+    Notes:
+    ------
+    - Inverse operation of build_circuit()
+    - Preserves gate order and parameters
+    - Handles all gate types (single-qubit, rotation, two-qubit)
+    - Returns standard format without metadata tags
+    """
+    # Create reverse lookup: gate_id -> gate_name
+    GATE_ID_TO_NAME = {v: k for k, v in GATE_DICT.items()}
+    
+    circuit_ops = []
+    n = len(gate_ids)
+    
+    for i in range(n):
+        gid = gate_ids[i]
+        gate_name = GATE_ID_TO_NAME[gid]
+        
+        # Single-qubit gates without parameters
+        if gid in (GATE_X, GATE_Z, GATE_H):
+            circuit_ops.append((gate_name, [int(wire1[i])], []))
+            
+        # Parameterized single-qubit rotation gates
+        elif gid in (GATE_RX, GATE_RY, GATE_RZ):
+            circuit_ops.append((gate_name, [int(wire1[i])], [float(theta[i])]))
+            
+        # Two-qubit controlled gates
+        elif gid in (GATE_CX, GATE_CZ):
+            circuit_ops.append((gate_name, [int(wire1[i]), int(wire2[i])], []))
+            
+        else:
+            raise ValueError(f"Unknown gate ID: {gid}")
+    
+    return circuit_ops
