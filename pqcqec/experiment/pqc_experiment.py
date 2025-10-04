@@ -5,13 +5,13 @@ import optax
 from ..circuits.generate import generate_random_circuit
 from ..circuits.modify import tokenize_qiskit_circuit
 
-from ..models.pqc_models import StateInputModelInterleavedPQCModel, StateInputModelInterleavedQuaternionModel
+from ..models.pqc_models import StateInputModelInterleavedPQCModel, StateInputModelInterleavedQuaternionModel, StateInputModelInterleavedComplexQuaternionModel
 from ..noise.simple_noise import PennylaneNoisyGates
 from ..simulate.simulate import get_input_data, run_circuit_with_noise_model
 
 from ..training.jax_loss_functions import jax_pure_state_fidelity, jax_mse_complex_loss, jax_fidelity_loss, jax_hilbert_schmidt_density_loss
 
-from ..training.jax_train_functions import train_pqc_model_with_uncomp, train_pqc_model_no_uncomp
+from ..training.jax_train_functions import train_pqc_model_with_uncomp, train_pqc_model_no_uncomp, train_complex_pqc_model_no_uncomp, train_complex_pqc_model_with_uncomp
 from ..utils.jax_utils import JAXStateDataset, JAXDataLoader
 
 def pqc_experiment_runner(
@@ -70,8 +70,21 @@ def pqc_experiment_runner(
     #                                         seed=jax_prng_keys[4])
 
     # Use XZY decomposition instead of ZXZ to avoid gimbal lock issues
-    # XZY is more numerically stable for small rotations near identity
-    model = StateInputModelInterleavedQuaternionModel(circuit_ops=uncomp_circuit_ops,
+    # # XZY is more numerically stable for small rotations near identity
+    # model = StateInputModelInterleavedQuaternionModel(circuit_ops=uncomp_circuit_ops,
+    #                                         num_qubits=num_qubits,
+    #                                         noise_model=noise_model,
+    #                                         pqc_blocks=pqc_blocks,
+    #                                         gate_blocks=gate_blocks,
+    #                                         pqc_type='zxz',  # Use ZXZ
+    #                                         seed=jax_prng_keys[4])
+
+    
+    # print(f"Model Parameters Shape: {model_params.shape}")
+    # print(f"Model Parameter Count: {model_params.size}")
+
+    
+    model = StateInputModelInterleavedComplexQuaternionModel(circuit_ops=uncomp_circuit_ops,
                                             num_qubits=num_qubits,
                                             noise_model=noise_model,
                                             pqc_blocks=pqc_blocks,
@@ -80,8 +93,13 @@ def pqc_experiment_runner(
                                             seed=jax_prng_keys[4])
 
     model_params = model.get_model_params()
-    print(f"Model Parameters Shape: {model_params.shape}")
-    print(f"Model Parameter Count: {model_params.size}")
+    # Complex model returns dict, not array
+    total_params = sum(p.size for p in jax.tree_util.tree_leaves(model_params))
+    print(f"Model Parameters: {list(model_params.keys())}")
+    print(f"  - pre_quaternions: {model_params['pre_quaternions'].shape}")
+    print(f"  - theta_zz: {model_params['theta_zz'].shape}")
+    print(f"  - post_quaternions: {model_params['post_quaternions'].shape}")
+    print(f"Total Parameter Count: {total_params}")
 
     # Define optimizer
     TOTAL_STEPS = int(num_data / batch_size) * epochs  # Total steps across all epochs
@@ -128,10 +146,14 @@ def pqc_experiment_runner(
     # For better convergence, consider using jax_hilbert_schmidt_density_loss
     # which is more sensitive to small deviations than fidelity loss
     if add_uncomputation:
-        train_pqc_model_with_uncomp(model, train_dataloader, optimizer, schedule, 
+        # train_pqc_model_with_uncomp(model, train_dataloader, optimizer, schedule, 
+        #                             main_loss_fn=jax_fidelity_loss, epochs=epochs)
+        train_complex_pqc_model_with_uncomp(model, train_dataloader, optimizer, schedule, 
                                     main_loss_fn=jax_fidelity_loss, epochs=epochs)
     else:
-        train_pqc_model_no_uncomp(model, train_dataloader, optimizer, schedule, 
+        # train_pqc_model_no_uncomp(model, train_dataloader, optimizer, schedule, 
+        #                           main_loss_fn=jax_fidelity_loss, epochs=epochs)
+        train_complex_pqc_model_no_uncomp(model, train_dataloader, optimizer, schedule, 
                                   main_loss_fn=jax_fidelity_loss, epochs=epochs)
 
     # Test the model
@@ -172,7 +194,13 @@ def pqc_experiment_runner(
     print(f"Fidelity (Ideal, Noisy): {jnp.mean(fidelity_ideal_noisy):.4e}")
     print(f"Fidelity (Ideal, PQC): {jnp.mean(fidelity_ideal_pqc):.4e}")
     # print(f"Test MSE Loss (Noisy): {jax_mse_complex_loss(ideal_out_state, noisy_state):.4e}")
-    # print(f'Model Parameters: \n{model.get_model_params()}')
+    
+    # Print model parameter statistics (for complex quaternion model)
+    print("\nFinal Model Parameters Summary:")
+    final_params = model.get_model_params()
+    for key, val in final_params.items():
+        print(f"  {key}: shape={val.shape}, mean={jnp.mean(jnp.abs(val)):.6f}, std={jnp.std(val):.6f}")
+    
     if return_fidelity:
         return fidelity_ideal_noisy, fidelity_ideal_pqc
 
