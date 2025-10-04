@@ -621,14 +621,13 @@ def create_pqc_circuit_template(circuit_ops, num_qubits, gate_blocks, pqc_gates,
 
 
 def create_pqc_circuit_template_simplified(circuit_ops, num_qubits, gate_blocks, pqc_gates, num_pqc_blocks, 
-                                           dtype=np.float32, ignore_noise_gates=False):
+                                           dtype=np.float32, ignore_noise_gates=True):
     """
     Simplified template creation - same as original but calls simplified builder.
     
     Creates a template dictionary that can be rapidly updated with new PQC parameters.
     This is the companion to build_circuit_with_pqc_simplified for training loops.
     """
-    from pqcqec.noise.builder import build_circuit
     
     # Build initial circuit with dummy parameters
     dummy_params = np.zeros((num_pqc_blocks, num_qubits, len(pqc_gates)), dtype=dtype)

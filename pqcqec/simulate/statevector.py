@@ -3,26 +3,18 @@ from numba import njit, prange
 from numba.experimental import jitclass
 from numba import types
 
-# Gate ENUMS
-GATE_X  = 0
-GATE_Z  = 1
-GATE_H  = 2
-GATE_RX = 3
-GATE_RY = 4
-GATE_RZ = 5
-GATE_CX = 6
-GATE_CZ = 7
+from ..utils.constants import GateEnums, GATE_DICT
 
-GATE_DICT = {
-    'x': GATE_X,
-    'z': GATE_Z,
-    'h': GATE_H,
-    'rx': GATE_RX,
-    'ry': GATE_RY,
-    'rz': GATE_RZ,
-    'cx': GATE_CX,
-    'cz': GATE_CZ
-}
+# Gate Enums as regualar ints
+
+GATE_X  = GateEnums.GATE_X
+GATE_Z  = GateEnums.GATE_Z
+GATE_H  = GateEnums.GATE_H
+GATE_RX = GateEnums.GATE_RX
+GATE_RY = GateEnums.GATE_RY
+GATE_RZ = GateEnums.GATE_RZ
+GATE_CX = GateEnums.GATE_CX
+GATE_CZ = GateEnums.GATE_CZ
 
 # Move all functions outside the class and make them standalone njit functions
 @njit

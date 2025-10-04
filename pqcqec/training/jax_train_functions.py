@@ -38,6 +38,7 @@ def train_pqc_model_with_uncomp(model, dataloader, optimizer, schedule, main_los
 
     # Initialize optimizer state once and carry across epochs
     opt_state = optimizer.init(model.get_model_params())
+    global_step = 0  # Track steps across all epochs
     for e in range(epochs):
         print(f"Epoch {e + 1}/{epochs}")
         data_iterator = tqdm(dataloader, desc="Training", total=len(dataloader), leave=False, unit='batch')
@@ -61,7 +62,8 @@ def train_pqc_model_with_uncomp(model, dataloader, optimizer, schedule, main_los
             epoch_fidelities.append(float(fidelity))
             epoch_losses.append(float(loss))
 
-            current_lr = schedule(i)
+            current_lr = schedule(global_step)
+            global_step += 1  # Increment global step counter
 
             data_iterator.set_postfix_str(f"Fidelity (Ideal, Measured): {fidelity:.4e}, Loss: {loss:.4e}, LR: {current_lr:.4e}")
         
@@ -99,6 +101,7 @@ def train_pqc_model_no_uncomp(model, dataloader, optimizer, schedule, main_loss_
         return opt_state, new_params, loss, fidelity
 
     opt_state = optimizer.init(model.get_model_params())
+    global_step = 0  # Track steps across all epochs
     for e in range(epochs):
         print(f"Epoch {e + 1}/{epochs}")
         data_iterator = tqdm(dataloader, desc="Training", total=len(dataloader), leave=False, unit='batch')
@@ -122,7 +125,8 @@ def train_pqc_model_no_uncomp(model, dataloader, optimizer, schedule, main_loss_
             epoch_fidelities.append(float(fidelity))
             epoch_losses.append(float(loss))
 
-            current_lr = schedule(i)
+            current_lr = schedule(global_step)
+            global_step += 1  # Increment global step counter
 
             data_iterator.set_postfix_str(f"Fidelity (Ideal, Measured): {fidelity:.4e}, Loss: {loss:.4e}, LR: {current_lr:.4e}")
         

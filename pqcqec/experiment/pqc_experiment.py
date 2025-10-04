@@ -9,7 +9,7 @@ from ..models.pqc_models import StateInputModelInterleavedPQCModel, StateInputMo
 from ..noise.simple_noise import PennylaneNoisyGates
 from ..simulate.simulate import get_input_data, run_circuit_with_noise_model
 
-from ..training.jax_loss_functions import jax_pure_state_fidelity, jax_mse_complex_loss
+from ..training.jax_loss_functions import jax_pure_state_fidelity, jax_mse_complex_loss, jax_fidelity_loss, jax_hilbert_schmidt_density_loss
 
 from ..training.jax_train_functions import train_pqc_model_with_uncomp, train_pqc_model_no_uncomp
 from ..utils.jax_utils import JAXStateDataset, JAXDataLoader
@@ -31,12 +31,13 @@ def pqc_experiment_runner(
     ideal_train_data = get_input_data(num_qubits, num_data, seed=jax_prng_keys[0])
     
     # Generate noise
-    # train_noise = JAXNoise(x_rad=jnp.pi/100, z_rad=jnp.pi/100, shape=(num_data, num_gates * 2), seed=jax_prng_keys[1])
-    # print(noise_dist)
+    # For 500 gates, default π/30 noise is TOO STRONG (compounds to ~70% fidelity loss)
+    # Use much weaker noise for learnable error correction
     if noise_dist:
         noise_model = PennylaneNoisyGates(**noise_dist, seed=jax_prng_keys[1])
     else:
-        noise_model = PennylaneNoisyGates(seed=jax_prng_keys[1])
+        # Default: π/100 instead of π/30 for 500-gate circuits
+        noise_model = PennylaneNoisyGates(x_rad=jnp.pi/100, z_rad=jnp.pi/100, seed=jax_prng_keys[1])
 
     # Create dataset and dataloader
     train_dataset = JAXStateDataset(ideal_train_data)
@@ -68,11 +69,14 @@ def pqc_experiment_runner(
     #                                         gate_blocks=gate_blocks,
     #                                         seed=jax_prng_keys[4])
 
+    # Use XZY decomposition instead of ZXZ to avoid gimbal lock issues
+    # XZY is more numerically stable for small rotations near identity
     model = StateInputModelInterleavedQuaternionModel(circuit_ops=uncomp_circuit_ops,
                                             num_qubits=num_qubits,
                                             noise_model=noise_model,
                                             pqc_blocks=pqc_blocks,
                                             gate_blocks=gate_blocks,
+                                            pqc_type='zxz',  # Use ZXZ
                                             seed=jax_prng_keys[4])
 
     model_params = model.get_model_params()
@@ -80,13 +84,15 @@ def pqc_experiment_runner(
     print(f"Model Parameter Count: {model_params.size}")
 
     # Define optimizer
-    TOTAL_STEPS = int(num_data / batch_size)
+    TOTAL_STEPS = int(num_data / batch_size) * epochs  # Total steps across all epochs
     WARMUP_STEPS = int(0.1 * TOTAL_STEPS)
-    RESTART_PERIOD = int(0.25 * TOTAL_STEPS)
+    DECAY_STEPS = TOTAL_STEPS - WARMUP_STEPS
 
-    INIT_LR = 1e-4
-    PEAK_LR = 1e-2
-    MIN_LR = 5e-4
+    # Scale learning rate with batch size (linear scaling rule)
+    # For batch_size=10: use lower LR, for batch_size=64+: can use higher LR
+    INIT_LR = 1e-7
+    PEAK_LR = 1e-3 if batch_size >= 32 else 5e-4  # Higher LR for larger batches
+    MIN_LR = 1e-7   # Lower floor for fine-tuning
 
     # 1. Warmup schedule
     warmup = optax.linear_schedule(
@@ -95,32 +101,38 @@ def pqc_experiment_runner(
         transition_steps=WARMUP_STEPS
     )
 
-    # 2. Cosine decay with restarts
-    def cosine_with_restart_schedule(step):
-        step_in_period = step % RESTART_PERIOD
-        cosine = 0.5 * (1 + jnp.cos(jnp.pi * step_in_period / RESTART_PERIOD))
-        return MIN_LR + (PEAK_LR - MIN_LR) * cosine
+    # 2. Cosine decay schedule
+    cosine_decay = optax.cosine_decay_schedule(
+        init_value=PEAK_LR,
+        decay_steps=DECAY_STEPS,
+        alpha=MIN_LR / PEAK_LR
+    )
 
-    # 3. Stitch warmup + cosine
+    # 3. Stitch warmup + cosine decay
     schedule = optax.join_schedules(
-        schedules=[warmup, cosine_with_restart_schedule],
+        schedules=[warmup, cosine_decay],
         boundaries=[WARMUP_STEPS]
     )
 
     # 4. Optimizer chain
+    # For small batch sizes, use gradient accumulation or increase batch norm momentum
     optimizer = optax.chain(
         optax.clip_by_global_norm(1.0),
-        optax.scale_by_adam(eps=1e-8),
+        optax.scale_by_adam(eps=1e-8, b1=0.9, b2=0.999),  # Standard Adam hyperparams
         optax.add_decayed_weights(weight_decay=1e-5),
         optax.scale_by_schedule(schedule),
         optax.scale(-1.0)
     )
     
     # Train the model
+    # For better convergence, consider using jax_hilbert_schmidt_density_loss
+    # which is more sensitive to small deviations than fidelity loss
     if add_uncomputation:
-        train_pqc_model_with_uncomp(model, train_dataloader, optimizer, schedule, epochs=epochs)
+        train_pqc_model_with_uncomp(model, train_dataloader, optimizer, schedule, 
+                                    main_loss_fn=jax_fidelity_loss, epochs=epochs)
     else:
-        train_pqc_model_no_uncomp(model, train_dataloader, optimizer, schedule, epochs=epochs)
+        train_pqc_model_no_uncomp(model, train_dataloader, optimizer, schedule, 
+                                  main_loss_fn=jax_fidelity_loss, epochs=epochs)
 
     # Test the model
 

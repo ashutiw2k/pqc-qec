@@ -180,15 +180,17 @@ class StateInputModelInterleavedQuaternionModel:
 
         self.param_sz = (int(self.pqc_blocks * jnp.ceil(self.num_gates/self.gate_blocks)), self.num_qubits, self.num_quaternion_values)
 
-        # Initialize unit quaternions with a moderate random rotation to avoid
-        # ZXZ gimbal-lock singularities (β ≈ 0 or π) that can yield NaN gradients.
-        # Sample a random axis u and an angle a ∈ [a_min, a_max], then form
-        # q = [cos(a/2), u*sin(a/2)].
+        # Initialize unit quaternions with SMALL random rotations near identity
+        # to avoid adding noise at initialization. For uncomputation (U U†), PQC
+        # should start near identity and learn small corrections.
+        # Sample a random axis u and a SMALL angle a, then form q = [cos(a/2), u*sin(a/2)].
         key = jax.random.PRNGKey(self.seed)
         key_axis, key_angle = jax.random.split(key)
         axes = jax.random.normal(key_axis, self.param_sz[:-1] + (3,), dtype=jnp.float32)
         axes = axes / (jnp.linalg.norm(axes, axis=-1, keepdims=True) + 1e-12)
-        a_min, a_max = 0.2, 0.8  # radians
+        # CRITICAL FIX: Use MUCH smaller angles (0.01-0.1 rad instead of 0.2-0.8)
+        # This keeps initial PQC near identity to avoid adding noise
+        a_min, a_max = 0.01, 0.1  # radians (was 0.2-0.8)
         angles = jax.random.uniform(key_angle, self.param_sz[:-1] + (1,), dtype=jnp.float32,
                                     minval=a_min, maxval=a_max)
         w = jnp.cos(0.5 * angles)
