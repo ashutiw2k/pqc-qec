@@ -404,7 +404,10 @@ class StateInputModelInterleavedComplexQuaternionModel:
                         i0, i1 = q, (q + 1) % Q
                         # Use native ZZ if available; otherwise synthesize with CNOT–RZ–CNOT
                         # Here we use qml.IsingZZ directly (as in previous examples).
-                        qml.IsingZZ(theta_zz[b, q], wires=[i0, i1])
+                        # qml.IsingZZ(theta_zz[b, q], wires=[i0, i1])
+                        qml.CNOT(wires=[i0, i1])
+                        qml.RZ(theta_zz[b, q], wires=[i1])
+                        qml.CNOT(wires=[i0, i1])
 
                     # --- Post locals
                     for q in range(Q):
@@ -526,7 +529,7 @@ class StateInputModelInterleavedComplexQuaternionModel:
         """
         Return circuit tokens including PQC blocks as:
         - ('rz'/'rx'/'rz', [q], [angle])
-        - ('zz', [q, (q+1)%Q], [theta])
+        - ZZ decomposed as: CNOT(q,j), RZ(theta, j), CNOT(q,j)
         """
         tokens = []
         Q = self.num_qubits
@@ -542,10 +545,13 @@ class StateInputModelInterleavedComplexQuaternionModel:
                     tokens.append((self.pqc_gates[0], [q], [float(a)]))
                     tokens.append((self.pqc_gates[1], [q], [float(x)]))
                     tokens.append((self.pqc_gates[2], [q], [float(g)]))
-                # ZZ ring
+                # ZZ ring decomposed as CNOT-RZ-CNOT
                 for q in range(Q):
                     j = (q + 1) % Q
-                    tokens.append(('zz', [q, j], [float(th_zz[b, q])]))
+                    theta = float(th_zz[b, q])
+                    tokens.append(('cx', [q, j], []))
+                    tokens.append(('rz', [j], [theta]))
+                    tokens.append(('cx', [q, j], []))
                 # Post locals
                 for q in range(Q):
                     a, x, g = post_a[b, q]

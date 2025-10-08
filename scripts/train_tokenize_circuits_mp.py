@@ -17,7 +17,7 @@ import json
 from qiskit import QuantumCircuit
 from qiskit.qasm2 import dumps
 
-from pqcqec.experiment.pqc_experiment import pqc_experiment_runner
+from pqcqec.experiment.pqc_experiment import pqc_experiment_runner, pqc_experiment_custom_statevec_runner
 from pqcqec.circuits.generate import create_qiskit_circuit_from_ops
 
 from pqcqec.utils.args import get_all_valid_args, parse_args
@@ -154,10 +154,17 @@ def process_seed(args):
         }
 
     # Persist results and return compact status
+    # pqc_params is a tuple of (pre_angles, theta_zz, post_angles) JAX arrays
+    # Convert each to list for JSON serialization
+    pre_angles, theta_zz, post_angles = pqc_params
     token_data = {
         'seed': seed,
         'fidelity': mean_fidelity_ideal_pqc,
-        'pqc_params': pqc_params.tolist(),
+        'pqc_params': {
+            'pre_angles': pre_angles.tolist(),
+            'theta_zz': theta_zz.tolist(),
+            'post_angles': post_angles.tolist()
+        },
         'base_circuit_tokens': base_circ,
         'pqc_circuit_tokens': pqc_circ,
         'base_circuit_qasm': dumps(create_qiskit_circuit_from_ops(base_circ, qubit)),
