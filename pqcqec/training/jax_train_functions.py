@@ -38,6 +38,8 @@ def train_pqc_model_with_uncomp(model, dataloader, optimizer, schedule, main_los
 
     # Initialize optimizer state once and carry across epochs
     opt_state = optimizer.init(model.get_model_params())
+    global_step = 0  # Track global step count across epochs for learning rate schedule
+    
     for e in range(epochs):
         print(f"Epoch {e + 1}/{epochs}")
         data_iterator = tqdm(dataloader, desc="Training", total=len(dataloader), leave=False, unit='batch')
@@ -61,9 +63,12 @@ def train_pqc_model_with_uncomp(model, dataloader, optimizer, schedule, main_los
             epoch_fidelities.append(float(fidelity))
             epoch_losses.append(float(loss))
 
-            current_lr = schedule(i)
+            # Display current learning rate from schedule (for monitoring only)
+            current_lr = schedule(global_step)
 
             data_iterator.set_postfix_str(f"Fidelity (Ideal, Measured): {fidelity:.4e}, Loss: {loss:.4e}, LR: {current_lr:.4e}")
+            
+            global_step += 1
         
         # Print mean metrics at the end of each epoch
         mean_fidelity = np.mean(epoch_fidelities)
@@ -99,6 +104,8 @@ def train_pqc_model_no_uncomp(model, dataloader, optimizer, schedule, main_loss_
         return opt_state, new_params, loss, fidelity
 
     opt_state = optimizer.init(model.get_model_params())
+    global_step = 0  # Track global step count across epochs for learning rate schedule
+    
     for e in range(epochs):
         print(f"Epoch {e + 1}/{epochs}")
         data_iterator = tqdm(dataloader, desc="Training", total=len(dataloader), leave=False, unit='batch')
@@ -122,9 +129,12 @@ def train_pqc_model_no_uncomp(model, dataloader, optimizer, schedule, main_loss_
             epoch_fidelities.append(float(fidelity))
             epoch_losses.append(float(loss))
 
-            current_lr = schedule(i)
+            # Display current learning rate from schedule (for monitoring only)
+            current_lr = schedule(global_step)
 
             data_iterator.set_postfix_str(f"Fidelity (Ideal, Measured): {fidelity:.4e}, Loss: {loss:.4e}, LR: {current_lr:.4e}")
+            
+            global_step += 1
         
         # Print mean metrics at the end of each epoch
         mean_fidelity = np.mean(epoch_fidelities)
@@ -134,7 +144,7 @@ def train_pqc_model_no_uncomp(model, dataloader, optimizer, schedule, main_loss_
 
 
 def train_lel_zz_custom_statevec_with_uncomp(model, dataloader, optimizer, schedule, 
-                                              main_loss_fn=jax_fidelity_loss, epochs=1):
+                                              main_loss_fn=jax_mse_complex_loss_aligned, epochs=1):
     """
     Train LEL-ZZ model with uncomputation using custom statevector backend.
     
@@ -181,6 +191,8 @@ def train_lel_zz_custom_statevec_with_uncomp(model, dataloader, optimizer, sched
     params = model.get_model_params()
     opt_state = optimizer.init((params['pre_quaternions'], params['theta_zz'], params['post_quaternions']))
     
+    global_step = 0  # Track global step count across epochs for learning rate schedule
+    
     for e in range(epochs):
         print(f"Epoch {e + 1}/{epochs}")
         data_iterator = tqdm(dataloader, desc="Training", total=len(dataloader), leave=False, unit='batch')
@@ -208,10 +220,13 @@ def train_lel_zz_custom_statevec_with_uncomp(model, dataloader, optimizer, sched
             epoch_fidelities.append(float(fidelity))
             epoch_losses.append(float(loss))
             
-            current_lr = schedule(i)
+            # Display current learning rate from schedule (for monitoring only)
+            current_lr = schedule(global_step)
             data_iterator.set_postfix_str(
                 f"Fidelity (Ideal, Measured): {fidelity:.4e}, Loss: {loss:.4e}, LR: {current_lr:.4e}"
             )
+            
+            global_step += 1
         
         # Print mean metrics at the end of each epoch
         mean_fidelity = np.mean(epoch_fidelities)
@@ -220,7 +235,7 @@ def train_lel_zz_custom_statevec_with_uncomp(model, dataloader, optimizer, sched
 
 
 def train_lel_zz_custom_statevec_no_uncomp(model, dataloader, optimizer, schedule,
-                                            main_loss_fn=jax_fidelity_loss, epochs=1):
+                                            main_loss_fn=jax_mse_complex_loss_aligned, epochs=1):
     """
     Train LEL-ZZ model without uncomputation using custom statevector backend.
     
@@ -267,6 +282,8 @@ def train_lel_zz_custom_statevec_no_uncomp(model, dataloader, optimizer, schedul
     params = model.get_model_params()
     opt_state = optimizer.init((params['pre_quaternions'], params['theta_zz'], params['post_quaternions']))
     
+    global_step = 0  # Track global step count across epochs for learning rate schedule
+    
     for e in range(epochs):
         print(f"Epoch {e + 1}/{epochs}")
         data_iterator = tqdm(dataloader, desc="Training", total=len(dataloader), leave=False, unit='batch')
@@ -295,10 +312,13 @@ def train_lel_zz_custom_statevec_no_uncomp(model, dataloader, optimizer, schedul
             epoch_fidelities.append(float(fidelity))
             epoch_losses.append(float(loss))
             
-            current_lr = schedule(i)
+            # Display current learning rate from schedule (for monitoring only)
+            current_lr = schedule(global_step)
             data_iterator.set_postfix_str(
                 f"Fidelity (Target, Measured): {fidelity:.4e}, Loss: {loss:.4e}, LR: {current_lr:.4e}"
             )
+            
+            global_step += 1
         
         # Print mean metrics at the end of each epoch
         mean_fidelity = np.mean(epoch_fidelities)
