@@ -79,9 +79,9 @@ def test_zz_gate():
     # Create circuit operations for ZZ
     circuit_ops = [
         ('h', [0], []),
-        ('cnot', [0, 1], []),
+        ('cx', [0, 1], []),
         ('rz', [1], [theta]),
-        ('cnot', [0, 1], []),
+        ('cx', [0, 1], []),
     ]
     
     gate_ids, wire1s, wire2s, thetas = build_jax_circuit(circuit_ops)

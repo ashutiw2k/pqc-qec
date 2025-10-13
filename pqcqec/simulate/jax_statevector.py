@@ -142,7 +142,7 @@ def apply_rz(state: jnp.ndarray, n_qubits: int, q: int, theta: float) -> jnp.nda
 
 @partial(jax.jit, static_argnums=(1, 2, 3))
 def apply_cx(state: jnp.ndarray, n_qubits: int, control: int, target: int) -> jnp.ndarray:
-    """Apply CNOT gate with specified control and target qubits."""
+    """Apply CX gate with specified control and target qubits."""
     dim = state.shape[0]
     control_bit_pos = n_qubits - 1 - control
     target_bit_pos = n_qubits - 1 - target

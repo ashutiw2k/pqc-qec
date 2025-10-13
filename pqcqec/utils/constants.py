@@ -57,6 +57,5 @@ GATE_DICT = {
     'ry': GateEnums.GATE_RY,
     'rz': GateEnums.GATE_RZ,
     'cx': GateEnums.GATE_CX,
-    'cnot': GateEnums.GATE_CX,  # alias for cx
     'cz': GateEnums.GATE_CZ
 }

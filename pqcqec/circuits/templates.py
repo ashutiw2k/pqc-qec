@@ -28,7 +28,7 @@ class CircuitTemplate:
         Add a gate to the template.
         
         Args:
-            gate_name: Name of the gate (e.g., 'rx', 'rz', 'cnot')
+            gate_name: Name of the gate (e.g., 'rx', 'rz', 'cx')
             qubits: List of qubit indices the gate acts on
             param_source: Source of parameter (e.g., 'x_noise', 'pre_params', 'base')
             param_idx: Index into the parameter source array
@@ -130,9 +130,9 @@ def build_pqc_circuit_template(base_ops: List[Tuple],
             # ZZ entangling gates (ring topology)
             for q in range(num_qubits):
                 j = (q + 1) % num_qubits
-                template.add_gate('cnot', [q, j])
+                template.add_gate('cx', [q, j])
                 template.add_gate('rz', [j], param_source='theta_zz', param_idx=q)
-                template.add_gate('cnot', [q, j])
+                template.add_gate('cx', [q, j])
             
             # Post-local unitaries
             for q in range(num_qubits):

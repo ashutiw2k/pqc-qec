@@ -23,10 +23,10 @@ def list_LEL_ZZ(num_qubits:int, pre_params:np.ndarray, theta_zz: np.ndarray, pos
     # ZZ entangling gates
     for i in range(num_qubits):
         j = (i + 1) % num_qubits  # Assuming a ring topology
-        # RZZ(θ) = CNOT-RZ(θ)-CNOT
-        pqc_circuit_ops.append(('cnot', [i, j], []))
+        # RZZ(θ) = CX-RZ(θ)-CX
+        pqc_circuit_ops.append(('cx', [i, j], []))
         pqc_circuit_ops.append(('rz', [j], [theta_zz[i]] ))
-        pqc_circuit_ops.append(('cnot', [i, j], []))
+        pqc_circuit_ops.append(('cx', [i, j], []))
 
     # Post-local unitaries
     for i in range(num_qubits):

@@ -128,7 +128,7 @@ def test_theta_zz_gradients():
     zz_ops = []
     for i, op in enumerate(circuit_tokens):
         gate, qubits, params_list = op
-        if gate == 'cnot':
+        if gate == 'cx':
             # Check if next gate is RZ (potential ZZ layer)
             if i + 1 < len(circuit_tokens):
                 next_gate, next_qubits, next_params = circuit_tokens[i + 1]

@@ -317,7 +317,7 @@ def pqc_experiment_custom_statevec_runner(
         # Generate them using the base circuit without noise
         # print("Generating ideal target states for training...")
         
-        train_lel_zz_custom_statevec_no_uncomp(model, ideal_train_outputs, train_dataloader, 
+        train_lel_zz_custom_statevec_no_uncomp(model, train_dataloader, 
                                                optimizer, schedule, epochs=epochs)
 
     # Test the model
