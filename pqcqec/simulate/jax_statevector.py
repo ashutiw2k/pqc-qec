@@ -191,7 +191,7 @@ def apply_gate(state: jnp.ndarray, n_qubits: int, gate_id: int,
     Args:
         state: Current state vector
         n_qubits: Number of qubits
-        gate_id: Gate type identifier
+        gate_id: Gate type identifier (1-8 from GateEnums)
         wire1: First wire (target for 1q, control for 2q)
         wire2: Second wire (unused for 1q, target for 2q)
         theta: Rotation angle (unused for non-parametric gates)
@@ -200,17 +200,18 @@ def apply_gate(state: jnp.ndarray, n_qubits: int, gate_id: int,
         Updated state vector
     """
     # Use lax.switch for efficient branching in JIT
+    # Note: gate_id starts from 1 (enum.auto()), so subtract 1 for 0-based indexing
     return jax.lax.switch(
-        gate_id,
+        gate_id - 1,  # Convert from 1-based enum to 0-based index
         [
-            lambda s: apply_x(s, n_qubits, wire1),      # GATE_X = 0
-            lambda s: apply_z(s, n_qubits, wire1),      # GATE_Z = 1
-            lambda s: apply_h(s, n_qubits, wire1),      # GATE_H = 2
-            lambda s: apply_rx(s, n_qubits, wire1, theta),  # GATE_RX = 3
-            lambda s: apply_ry(s, n_qubits, wire1, theta),  # GATE_RY = 4
-            lambda s: apply_rz(s, n_qubits, wire1, theta),  # GATE_RZ = 5
-            lambda s: apply_cx(s, n_qubits, wire1, wire2),  # GATE_CX = 6
-            lambda s: apply_cz(s, n_qubits, wire1, wire2),  # GATE_CZ = 7
+            lambda s: apply_x(s, n_qubits, wire1),      # GATE_X = 1 -> index 0
+            lambda s: apply_z(s, n_qubits, wire1),      # GATE_Z = 2 -> index 1
+            lambda s: apply_h(s, n_qubits, wire1),      # GATE_H = 3 -> index 2
+            lambda s: apply_rx(s, n_qubits, wire1, theta),  # GATE_RX = 4 -> index 3
+            lambda s: apply_ry(s, n_qubits, wire1, theta),  # GATE_RY = 5 -> index 4
+            lambda s: apply_rz(s, n_qubits, wire1, theta),  # GATE_RZ = 6 -> index 5
+            lambda s: apply_cx(s, n_qubits, wire1, wire2),  # GATE_CX = 7 -> index 6
+            lambda s: apply_cz(s, n_qubits, wire1, wire2),  # GATE_CZ = 8 -> index 7
         ],
         state
     )
