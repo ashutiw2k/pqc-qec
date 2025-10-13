@@ -130,3 +130,179 @@ def train_pqc_model_no_uncomp(model, dataloader, optimizer, schedule, main_loss_
         mean_fidelity = np.mean(epoch_fidelities)
         mean_loss = np.mean(epoch_losses)
         print(f"Epoch {e+1} summary - Mean Fidelity: {mean_fidelity:.4e}, Mean Loss: {mean_loss:.4e}")
+
+
+
+def train_lel_zz_custom_statevec_with_uncomp(model, dataloader, optimizer, schedule, 
+                                              main_loss_fn=jax_fidelity_loss, epochs=1):
+    """
+    Train LEL-ZZ model with uncomputation using custom statevector backend.
+    
+    With uncomputation (U U†), the ideal output equals the input, so we train
+    the PQC to map input -> input, correcting noise along the way.
+    """
+    
+    @jax.jit
+    def update_step(pre_quats, theta_zz, post_quats, opt_state, ideal_data):
+        """Perform a single update step for the model parameters."""
+        
+        def loss_fn(pre_q, theta, post_q):
+            # Run model with current PQC parameters
+            measured = model.run_model_batch(ideal_data, pre_q, theta, post_q)
+            # With uncomputation, target is the input itself
+            return main_loss_fn(ideal_data, measured)
+        
+        # Compute loss and gradients w.r.t. all PQC parameters
+        loss, grads = jax.value_and_grad(loss_fn, argnums=(0, 1, 2))(
+            pre_quats, theta_zz, post_quats
+        )
+        
+        # Sanitize gradients to avoid NaN/Inf explosions
+        grads = jax.tree.map(lambda g: jnp.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), grads)
+        
+        # Update parameters
+        updates, opt_state = optimizer.update(grads, opt_state, (pre_quats, theta_zz, post_quats))
+        new_pre_quats, new_theta_zz, new_post_quats = optax.apply_updates(
+            (pre_quats, theta_zz, post_quats), updates
+        )
+        
+        # Keep params finite
+        new_pre_quats = jnp.nan_to_num(new_pre_quats, nan=0.0, posinf=0.0, neginf=0.0)
+        new_theta_zz = jnp.nan_to_num(new_theta_zz, nan=0.0, posinf=0.0, neginf=0.0)
+        new_post_quats = jnp.nan_to_num(new_post_quats, nan=0.0, posinf=0.0, neginf=0.0)
+        
+        # Compute fidelity with updated parameters
+        measured = model.run_model_batch(ideal_data, new_pre_quats, new_theta_zz, new_post_quats)
+        fidelity = jax_pure_state_fidelity(ideal_data, measured)
+        
+        return opt_state, new_pre_quats, new_theta_zz, new_post_quats, loss, fidelity
+    
+    # Initialize optimizer state
+    params = model.get_model_params()
+    opt_state = optimizer.init((params['pre_quaternions'], params['theta_zz'], params['post_quaternions']))
+    
+    for e in range(epochs):
+        print(f"Epoch {e + 1}/{epochs}")
+        data_iterator = tqdm(dataloader, desc="Training", total=len(dataloader), leave=False, unit='batch')
+        
+        # Initialize lists to track metrics for this epoch
+        epoch_fidelities = []
+        epoch_losses = []
+        
+        for i, batch in enumerate(data_iterator):
+            ideal_data = batch[0]  # Extract input states from batch
+            
+            # Get current parameters
+            params = model.get_model_params()
+            
+            # Update step
+            opt_state, new_pre_quats, new_theta_zz, new_post_quats, loss, fidelity = update_step(
+                params['pre_quaternions'], params['theta_zz'], params['post_quaternions'],
+                opt_state, ideal_data
+            )
+            
+            # Update model parameters
+            model.set_model_params(new_pre_quats, new_theta_zz, new_post_quats)
+            
+            # Track metrics
+            epoch_fidelities.append(float(fidelity))
+            epoch_losses.append(float(loss))
+            
+            current_lr = schedule(i)
+            data_iterator.set_postfix_str(
+                f"Fidelity (Ideal, Measured): {fidelity:.4e}, Loss: {loss:.4e}, LR: {current_lr:.4e}"
+            )
+        
+        # Print mean metrics at the end of each epoch
+        mean_fidelity = np.mean(epoch_fidelities)
+        mean_loss = np.mean(epoch_losses)
+        print(f"Epoch {e+1} summary - Mean Fidelity: {mean_fidelity:.4e}, Mean Loss: {mean_loss:.4e}")
+
+
+def train_lel_zz_custom_statevec_no_uncomp(model, dataloader, optimizer, schedule,
+                                            main_loss_fn=jax_fidelity_loss, epochs=1):
+    """
+    Train LEL-ZZ model without uncomputation using custom statevector backend.
+    
+    Without uncomputation, we train PQC to map input -> target_output,
+    where target_output is the ideal (noiseless) circuit output.
+    """
+    
+    @jax.jit
+    def update_step(pre_quats, theta_zz, post_quats, opt_state, input_data, target_data):
+        """Perform a single update step for the model parameters."""
+        
+        def loss_fn(pre_q, theta, post_q):
+            # Run model with current PQC parameters
+            measured = model.run_model_batch(input_data, pre_q, theta, post_q)
+            # Target is the ideal noiseless output
+            return main_loss_fn(target_data, measured)
+        
+        # Compute loss and gradients w.r.t. all PQC parameters
+        loss, grads = jax.value_and_grad(loss_fn, argnums=(0, 1, 2))(
+            pre_quats, theta_zz, post_quats
+        )
+        
+        # Sanitize gradients
+        grads = jax.tree.map(lambda g: jnp.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), grads)
+        
+        # Update parameters
+        updates, opt_state = optimizer.update(grads, opt_state, (pre_quats, theta_zz, post_quats))
+        new_pre_quats, new_theta_zz, new_post_quats = optax.apply_updates(
+            (pre_quats, theta_zz, post_quats), updates
+        )
+        
+        # Keep params finite
+        new_pre_quats = jnp.nan_to_num(new_pre_quats, nan=0.0, posinf=0.0, neginf=0.0)
+        new_theta_zz = jnp.nan_to_num(new_theta_zz, nan=0.0, posinf=0.0, neginf=0.0)
+        new_post_quats = jnp.nan_to_num(new_post_quats, nan=0.0, posinf=0.0, neginf=0.0)
+        
+        # Compute fidelity with updated parameters
+        measured = model.run_model_batch(input_data, new_pre_quats, new_theta_zz, new_post_quats)
+        fidelity = jax_pure_state_fidelity(target_data, measured)
+        
+        return opt_state, new_pre_quats, new_theta_zz, new_post_quats, loss, fidelity
+    
+    # Initialize optimizer state
+    params = model.get_model_params()
+    opt_state = optimizer.init((params['pre_quaternions'], params['theta_zz'], params['post_quaternions']))
+    
+    for e in range(epochs):
+        print(f"Epoch {e + 1}/{epochs}")
+        data_iterator = tqdm(dataloader, desc="Training", total=len(dataloader), leave=False, unit='batch')
+        
+        # Initialize lists to track metrics for this epoch
+        epoch_fidelities = []
+        epoch_losses = []
+        
+        for i, batch in enumerate(data_iterator):
+            input_data = batch[0]  # Input states
+            target_data = batch[1]
+            
+            # Get current parameters
+            params = model.get_model_params()
+            
+            # Update step
+            opt_state, new_pre_quats, new_theta_zz, new_post_quats, loss, fidelity = update_step(
+                params['pre_quaternions'], params['theta_zz'], params['post_quaternions'],
+                opt_state, input_data, target_data
+            )
+            
+            # Update model parameters
+            model.set_model_params(new_pre_quats, new_theta_zz, new_post_quats)
+            
+            # Track metrics
+            epoch_fidelities.append(float(fidelity))
+            epoch_losses.append(float(loss))
+            
+            current_lr = schedule(i)
+            data_iterator.set_postfix_str(
+                f"Fidelity (Target, Measured): {fidelity:.4e}, Loss: {loss:.4e}, LR: {current_lr:.4e}"
+            )
+        
+        # Print mean metrics at the end of each epoch
+        mean_fidelity = np.mean(epoch_fidelities)
+        mean_loss = np.mean(epoch_losses)
+        print(f"Epoch {e+1} summary - Mean Fidelity: {mean_fidelity:.4e}, Mean Loss: {mean_loss:.4e}")
+
+
