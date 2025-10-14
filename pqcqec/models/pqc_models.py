@@ -397,7 +397,7 @@ class LELZZInterleavedQuaternionCustomStatevecModel:
         self.post_quaternions = jnp.concatenate([w_post, v_post], axis=-1).astype(jnp.float32)
         
         # ZZ entangling angles (start at zero)
-        self.theta_zz = jnp.zeros((num_qubits,), dtype=jnp.float32)
+        self.theta_zz = jnp.zeros((num_pqc_layers, num_qubits,), dtype=jnp.float32)
         
         # Store base circuit parameters
         self.base_params = np.array([

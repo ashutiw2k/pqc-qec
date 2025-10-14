@@ -131,7 +131,7 @@ def build_pqc_circuit_template(base_ops: List[Tuple],
             for q in range(num_qubits):
                 j = (q + 1) % num_qubits
                 template.add_gate('cx', [q, j])
-                template.add_gate('rz', [j], param_source='theta_zz', param_idx=q)
+                template.add_gate('rz', [j], param_source='theta_zz', param_idx=(pqc_layer_idx, q))
                 template.add_gate('cx', [q, j])
             
             # Post-local unitaries
