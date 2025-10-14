@@ -510,4 +510,104 @@ class LELZZInterleavedQuaternionCustomStatevecModel:
         
         return self.template.instantiate(param_dict)
     
+    def build_partial_template(self, max_block_idx):
+        """
+        Build a circuit template up to and including max_block_idx.
+        
+        This creates a template for progressive training where we only need
+        to simulate part of the circuit.
+        
+        Args:
+            max_block_idx: Last PQC block to include (0-indexed)
+        
+        Returns:
+            CircuitTemplate including gates and PQC blocks 0 through max_block_idx
+        """
+        from ..circuits.templates import build_pqc_circuit_template
+        
+        # Calculate number of base gates to include
+        num_gates_to_include = self.gate_blocks * (max_block_idx + 1)
+        partial_base_ops = self.base_circuit_ops[:num_gates_to_include]
+        
+        # Build template for partial circuit
+        return build_pqc_circuit_template(
+            base_ops=partial_base_ops,
+            num_qubits=self.num_qubits,
+            num_gate_blocks=self.gate_blocks,
+            add_noise=True,
+            add_pqc_layers=True
+        )
+    
+    def run_model_batch_up_to_block(self, input_states, max_block_idx, 
+                                     pre_quats=None, theta_zz=None, post_quats=None):
+        """
+        Run model but only simulate up to and including max_block_idx.
+        
+        This method is used for progressive training where we train blocks
+        one at a time. It uses cached partial templates for efficiency.
+        
+        Args:
+            input_states: Batch of input quantum states (B, 2^n)
+            max_block_idx: Last block to simulate (0-indexed)
+            pre_quats: Pre-layer quaternions (optional, uses stored if None)
+            theta_zz: ZZ angles (optional, uses stored if None)
+            post_quats: Post-layer quaternions (optional, uses stored if None)
+        
+        Returns:
+            output_states: Batch of output quantum states (B, 2^n)
+        """
+        from ..simulate.jax_statevector import build_jax_circuit, run_many_states
+        
+        # Initialize cache if needed
+        if not hasattr(self, '_partial_templates'):
+            self._partial_templates = {}
+        
+        # Get or build cached template
+        if max_block_idx not in self._partial_templates:
+            self._partial_templates[max_block_idx] = self.build_partial_template(max_block_idx)
+        
+        template = self._partial_templates[max_block_idx]
+        
+        # Use provided params or default to stored
+        if pre_quats is None:
+            pre_quats = self.pre_quaternions
+        if theta_zz is None:
+            theta_zz = self.theta_zz
+        if post_quats is None:
+            post_quats = self.post_quaternions
+        
+        # Slice parameters to only include blocks 0 through max_block_idx
+        pre_quats_partial = pre_quats[:max_block_idx + 1]
+        theta_zz_partial = theta_zz[:max_block_idx + 1]
+        post_quats_partial = post_quats[:max_block_idx + 1]
+        
+        # Convert quaternions to angles (stays in JAX)
+        pre_angles = self.convert_quaternions_to_angles(pre_quats_partial)
+        post_angles = self.convert_quaternions_to_angles(post_quats_partial)
+        
+        # Build parameter dictionary for partial circuit
+        num_gates = self.gate_blocks * (max_block_idx + 1)
+        param_dict = {
+            'base': self.base_params[:num_gates],
+            'x_noise': self.x_noise[:num_gates],
+            'z_noise': self.z_noise[:num_gates],
+            'pre_params': pre_angles,
+            'theta_zz': theta_zz_partial,
+            'post_params': post_angles
+        }
+        
+        # Instantiate template with current parameters
+        circuit_ops = template.instantiate(param_dict)
+        
+        # Convert to JAX format (produces JAX arrays)
+        gate_ids, wire1s, wire2s, thetas = build_jax_circuit(circuit_ops)
+        
+        # Run batched simulation with JAX (fully differentiable!)
+        output_states = run_many_states(
+            self.num_qubits, gate_ids, wire1s, wire2s, thetas, 
+            input_states
+        )
+        
+        return output_states
+    
     

@@ -326,3 +326,165 @@ def train_lel_zz_custom_statevec_no_uncomp(model, dataloader, optimizer, schedul
         print(f"Epoch {e+1} summary - Mean Fidelity: {mean_fidelity:.4e}, Mean Loss: {mean_loss:.4e}")
 
 
+def train_lel_zz_single_block_progressive(
+    model, dataloader, optimizer, schedule, block_idx,
+    main_loss_fn=jax_mse_complex_loss_aligned, epochs=1
+):
+    """
+    Train a single PQC block progressively while keeping previous blocks frozen.
+    
+    This function is designed for progressive/incremental training where blocks
+    are trained one at a time. Previous blocks are frozen using stop_gradient to
+    prevent gradient flow, while the current block's parameters are optimized.
+    
+    Args:
+        model: LELZZInterleavedQuaternionCustomStatevecModel instance
+        dataloader: JAXDataLoader with (input_states, target_states) batches
+        optimizer: Fresh Optax optimizer instance for this block
+        schedule: Learning rate schedule function
+        block_idx: Which block to train (0-indexed)
+        main_loss_fn: Loss function to minimize
+        epochs: Number of training epochs for this block
+    """
+    
+    @jax.jit
+    def update_step(pre_quats, theta_zz, post_quats, opt_state, input_data, target_data):
+        """Single optimization step for current block only."""
+        
+        def loss_fn(trainable_pre, trainable_theta, trainable_post):
+            # Reconstruct full parameter arrays with frozen parts
+            if block_idx == 0:
+                # First block: no previous blocks to freeze
+                full_pre = trainable_pre
+                full_theta = trainable_theta
+                full_post = trainable_post
+            else:
+                # Freeze previous blocks with stop_gradient
+                frozen_pre = jax.lax.stop_gradient(pre_quats[:block_idx])
+                frozen_theta = jax.lax.stop_gradient(theta_zz[:block_idx])
+                frozen_post = jax.lax.stop_gradient(post_quats[:block_idx])
+                
+                # Concatenate frozen + trainable
+                full_pre = jnp.concatenate([frozen_pre, trainable_pre], axis=0)
+                full_theta = jnp.concatenate([frozen_theta, trainable_theta], axis=0)
+                full_post = jnp.concatenate([frozen_post, trainable_post], axis=0)
+            
+            # Simulate up to current block
+            measured = model.run_model_batch_up_to_block(
+                input_data, block_idx, full_pre, full_theta, full_post
+            )
+            
+            return main_loss_fn(target_data, measured)
+        
+        # Extract trainable parameters (current block only)
+        trainable_pre = pre_quats[block_idx:block_idx+1]
+        trainable_theta = theta_zz[block_idx:block_idx+1]
+        trainable_post = post_quats[block_idx:block_idx+1]
+        
+        # Compute loss and gradients (only for trainable params)
+        loss, grads = jax.value_and_grad(loss_fn, argnums=(0, 1, 2))(
+            trainable_pre, trainable_theta, trainable_post
+        )
+        
+        # Sanitize gradients
+        grads = jax.tree.map(
+            lambda g: jnp.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), 
+            grads
+        )
+        
+        # Apply optimizer update
+        updates, opt_state = optimizer.update(
+            grads, opt_state, (trainable_pre, trainable_theta, trainable_post)
+        )
+        new_pre, new_theta, new_post = optax.apply_updates(
+            (trainable_pre, trainable_theta, trainable_post), updates
+        )
+        
+        # Sanitize updated parameters
+        new_pre = jnp.nan_to_num(new_pre, nan=0.0, posinf=0.0, neginf=0.0)
+        new_theta = jnp.nan_to_num(new_theta, nan=0.0, posinf=0.0, neginf=0.0)
+        new_post = jnp.nan_to_num(new_post, nan=0.0, posinf=0.0, neginf=0.0)
+        
+        # Reconstruct full arrays for fidelity computation
+        if block_idx == 0:
+            full_pre_new = new_pre
+            full_theta_new = new_theta
+            full_post_new = new_post
+        else:
+            full_pre_new = jnp.concatenate([pre_quats[:block_idx], new_pre], axis=0)
+            full_theta_new = jnp.concatenate([theta_zz[:block_idx], new_theta], axis=0)
+            full_post_new = jnp.concatenate([post_quats[:block_idx], new_post], axis=0)
+        
+        # Compute fidelity with updated parameters
+        measured = model.run_model_batch_up_to_block(
+            input_data, block_idx, full_pre_new, full_theta_new, full_post_new
+        )
+        fidelity = jax_pure_state_fidelity(target_data, measured)
+        
+        return opt_state, new_pre, new_theta, new_post, loss, fidelity
+    
+    # Initialize optimizer for this block's parameters only
+    params = model.get_model_params()
+    trainable_params = (
+        params['pre_quaternions'][block_idx:block_idx+1],
+        params['theta_zz'][block_idx:block_idx+1],
+        params['post_quaternions'][block_idx:block_idx+1]
+    )
+    opt_state = optimizer.init(trainable_params)
+    
+    global_step = 0
+    
+    # Training loop
+    for e in range(epochs):
+        print(f"  Epoch {e + 1}/{epochs}")
+        data_iterator = tqdm(
+            dataloader, 
+            desc=f"  Block {block_idx}", 
+            total=len(dataloader), 
+            leave=False
+        )
+        
+        epoch_fidelities = []
+        epoch_losses = []
+        
+        for batch in data_iterator:
+            input_data, target_data = batch[0], batch[1]
+            
+            # Get current parameters
+            params = model.get_model_params()
+            
+            # Update step
+            opt_state, new_pre, new_theta, new_post, loss, fidelity = update_step(
+                params['pre_quaternions'], 
+                params['theta_zz'], 
+                params['post_quaternions'],
+                opt_state, 
+                input_data, 
+                target_data
+            )
+            
+            # Update model (only current block changes)
+            full_pre = params['pre_quaternions'].at[block_idx].set(new_pre[0])
+            full_theta = params['theta_zz'].at[block_idx].set(new_theta[0])
+            full_post = params['post_quaternions'].at[block_idx].set(new_post[0])
+            
+            model.set_model_params(full_pre, full_theta, full_post)
+            
+            # Track metrics
+            epoch_fidelities.append(float(fidelity))
+            epoch_losses.append(float(loss))
+            
+            current_lr = schedule(global_step)
+            data_iterator.set_postfix_str(
+                f"Fid: {fidelity:.4e}, Loss: {loss:.4e}, LR: {current_lr:.4e}"
+            )
+            
+            global_step += 1
+        
+        # Epoch summary
+        mean_fidelity = np.mean(epoch_fidelities)
+        mean_loss = np.mean(epoch_losses)
+        print(f"  Block {block_idx} Epoch {e+1}: "
+              f"Fidelity={mean_fidelity:.4e}, Loss={mean_loss:.4e}")
+
+
