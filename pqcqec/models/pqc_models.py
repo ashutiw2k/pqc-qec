@@ -10,6 +10,10 @@ from ..circuits.modify import pennylane_state_embedding
 from ..noise.simple_noise import PennylaneNoisyGates
 from ..utils.quaternions_utils import quaternion_to_zxz_angles, quaternion_to_xzy_angles
 
+from ..circuits.templates import build_pqc_circuit_template
+from ..simulate.statevector import build_numba_circuit, run_many_states
+from ..simulate.jax_statevector import build_jax_circuit, jax_run_many_states
+
 class StateInputModelInterleavedPQCModel:
     """A class to define the PQC model."""
     
@@ -339,8 +343,6 @@ class LELZZInterleavedQuaternionCustomStatevecModel:
             seed: Random seed for parameter initialization
             pqc_type: Type of PQC decomposition ('zxz' or 'xzy')
         """
-        from ..circuits.templates import build_pqc_circuit_template
-        from ..simulate.statevector import build_numba_circuit, run_many_states
         
         self.num_qubits = num_qubits
         self.base_circuit_ops = copy.deepcopy(base_circuit_ops)
@@ -369,41 +371,49 @@ class LELZZInterleavedQuaternionCustomStatevecModel:
             add_noise=True,
             add_pqc_layers=True
         )
+
         
         # Initialize PQC parameters
-        num_pqc_layers = int(pqc_blocks * jnp.ceil(self.num_gates / gate_blocks))
-        param_shape = (num_pqc_layers, num_qubits, 4)
+        self.num_pqc_layers = int(pqc_blocks * jnp.ceil(self.num_gates / gate_blocks))
+        self.quaternions_param_shape = (self.num_pqc_layers, num_qubits, 4)
         
         # Initialize quaternions with moderate random rotations
         key = jax.random.PRNGKey(seed)
         key_pre_axis, key_pre_angle, key_post_axis, key_post_angle = jax.random.split(key, 4)
         
         # Pre-layer quaternions
-        axes_pre = jax.random.normal(key_pre_axis, param_shape[:-1] + (3,), dtype=jnp.float32)
+        axes_pre = jax.random.normal(key_pre_axis, self.quaternions_param_shape[:-1] + (3,), dtype=jnp.float32)
         axes_pre = axes_pre / (jnp.linalg.norm(axes_pre, axis=-1, keepdims=True) + 1e-12)
-        angles_pre = jax.random.uniform(key_pre_angle, param_shape[:-1] + (1,), 
+        angles_pre = jax.random.uniform(key_pre_angle, self.quaternions_param_shape[:-1] + (1,), 
                                        dtype=jnp.float32, minval=0.2, maxval=0.8)
         w_pre = jnp.cos(0.5 * angles_pre)
         v_pre = axes_pre * jnp.sin(0.5 * angles_pre)
         self.pre_quaternions = jnp.concatenate([w_pre, v_pre], axis=-1).astype(jnp.float32)
         
         # Post-layer quaternions
-        axes_post = jax.random.normal(key_post_axis, param_shape[:-1] + (3,), dtype=jnp.float32)
+        axes_post = jax.random.normal(key_post_axis, self.quaternions_param_shape[:-1] + (3,), dtype=jnp.float32)
         axes_post = axes_post / (jnp.linalg.norm(axes_post, axis=-1, keepdims=True) + 1e-12)
-        angles_post = jax.random.uniform(key_post_angle, param_shape[:-1] + (1,), 
+        angles_post = jax.random.uniform(key_post_angle, self.quaternions_param_shape[:-1] + (1,), 
                                         dtype=jnp.float32, minval=0.2, maxval=0.8)
         w_post = jnp.cos(0.5 * angles_post)
         v_post = axes_post * jnp.sin(0.5 * angles_post)
         self.post_quaternions = jnp.concatenate([w_post, v_post], axis=-1).astype(jnp.float32)
         
         # ZZ entangling angles (start at zero)
-        self.theta_zz = jnp.zeros((num_pqc_layers, num_qubits,), dtype=jnp.float32)
+        self.theta_zz = jnp.zeros((self.num_pqc_layers, num_qubits,), dtype=jnp.float32)
         
         # Store base circuit parameters
         self.base_params = np.array([
             op[2][0] if len(op[2]) > 0 else 0.0 
             for op in base_circuit_ops
         ], dtype=np.float32)
+
+        self.partial_templates = {}
+        for idx in range(self.num_pqc_layers):
+            self.partial_templates[idx] = self.build_partial_template(idx)
+
+
+
     
     def get_model_params(self):
         """Get all trainable model parameters."""
@@ -445,7 +455,6 @@ class LELZZInterleavedQuaternionCustomStatevecModel:
         Returns:
             output_states: Batch of output quantum states (B, 2^n)
         """
-        from ..simulate.jax_statevector import build_jax_circuit, run_many_states
         
         # Use provided params or default to stored
         if pre_quats is None:
@@ -477,7 +486,7 @@ class LELZZInterleavedQuaternionCustomStatevecModel:
         gate_ids, wire1s, wire2s, thetas = build_jax_circuit(full_circuit_ops)
         
         # Run batched simulation with JAX (fully differentiable!)
-        output_states = run_many_states(
+        output_states = jax_run_many_states(
             self.num_qubits, gate_ids, wire1s, wire2s, thetas, 
             input_states
         )
@@ -523,7 +532,6 @@ class LELZZInterleavedQuaternionCustomStatevecModel:
         Returns:
             CircuitTemplate including gates and PQC blocks 0 through max_block_idx
         """
-        from ..circuits.templates import build_pqc_circuit_template
         
         # Calculate number of base gates to include
         num_gates_to_include = self.gate_blocks * (max_block_idx + 1)
@@ -556,17 +564,17 @@ class LELZZInterleavedQuaternionCustomStatevecModel:
         Returns:
             output_states: Batch of output quantum states (B, 2^n)
         """
-        from ..simulate.jax_statevector import build_jax_circuit, run_many_states
-        
+
         # Initialize cache if needed
-        if not hasattr(self, '_partial_templates'):
-            self._partial_templates = {}
+        # if not hasattr(self, '_partial_templates'):
+        #     self._partial_templates = {}
         
-        # Get or build cached template
-        if max_block_idx not in self._partial_templates:
-            self._partial_templates[max_block_idx] = self.build_partial_template(max_block_idx)
+        # # Get or build cached template
+        # if max_block_idx not in self._partial_templates:
+        #     self._partial_templates[max_block_idx] = self.build_partial_template(max_block_idx)
         
-        template = self._partial_templates[max_block_idx]
+        # template = self._partial_templates[max_block_idx]
+        template = self.partial_templates[max_block_idx]
         
         # Use provided params or default to stored
         if pre_quats is None:
@@ -603,7 +611,7 @@ class LELZZInterleavedQuaternionCustomStatevecModel:
         gate_ids, wire1s, wire2s, thetas = build_jax_circuit(circuit_ops)
         
         # Run batched simulation with JAX (fully differentiable!)
-        output_states = run_many_states(
+        output_states = jax_run_many_states(
             self.num_qubits, gate_ids, wire1s, wire2s, thetas, 
             input_states
         )

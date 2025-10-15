@@ -218,7 +218,7 @@ def apply_gate(state: jnp.ndarray, n_qubits: int, gate_id: int,
 
 
 @partial(jax.jit, static_argnums=(1,))
-def run_circuit_with_state(state: jnp.ndarray, n_qubits: int,
+def jax_run_circuit_with_state(state: jnp.ndarray, n_qubits: int,
                            gate_ids: jnp.ndarray, wire1s: jnp.ndarray,
                            wire2s: jnp.ndarray, thetas: jnp.ndarray) -> jnp.ndarray:
     """
@@ -250,7 +250,7 @@ def run_circuit_with_state(state: jnp.ndarray, n_qubits: int,
 
 
 @partial(jax.jit, static_argnums=(0,))
-def run_many_states(n_qubits: int, gate_ids: jnp.ndarray, 
+def jax_run_many_states(n_qubits: int, gate_ids: jnp.ndarray, 
                    wire1s: jnp.ndarray, wire2s: jnp.ndarray,
                    thetas: jnp.ndarray, states_in: jnp.ndarray) -> jnp.ndarray:
     """
@@ -269,7 +269,7 @@ def run_many_states(n_qubits: int, gate_ids: jnp.ndarray,
     """
     # Use vmap to vectorize over the batch dimension
     batched_run = jax.vmap(
-        lambda state: run_circuit_with_state(state, n_qubits, gate_ids, wire1s, wire2s, thetas),
+        lambda state: jax_run_circuit_with_state(state, n_qubits, gate_ids, wire1s, wire2s, thetas),
         in_axes=0
     )
     
@@ -335,7 +335,7 @@ def build_jax_circuit(circuit_ops: List[Tuple], dtype=jnp.float32) -> Tuple[jnp.
 
 
 @partial(jax.jit, static_argnums=(0,))
-def create_zero_state(n_qubits: int) -> jnp.ndarray:
+def jax_create_zero_state(n_qubits: int) -> jnp.ndarray:
     """Create the |0...0⟩ computational basis state."""
     state = jnp.zeros((2**n_qubits,), dtype=jnp.complex64)
     state = state.at[0].set(1.0 + 0.0j)
@@ -343,7 +343,7 @@ def create_zero_state(n_qubits: int) -> jnp.ndarray:
 
 
 @partial(jax.jit, static_argnums=(0,))
-def create_ones_state(n_qubits: int) -> jnp.ndarray:
+def jax_create_ones_state(n_qubits: int) -> jnp.ndarray:
     """Create the |1...1⟩ computational basis state."""
     state = jnp.zeros((2**n_qubits,), dtype=jnp.complex64)
     state = state.at[-1].set(1.0 + 0.0j)
@@ -351,5 +351,5 @@ def create_ones_state(n_qubits: int) -> jnp.ndarray:
 
 
 # Keep these for backwards compatibility
-run_circuit_with_state_jit = run_circuit_with_state
-run_many_states_jit = run_many_states
+run_circuit_with_state_jit = jax_run_circuit_with_state
+run_many_states_jit = jax_run_many_states

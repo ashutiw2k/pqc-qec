@@ -144,7 +144,7 @@ def train_pqc_model_no_uncomp(model, dataloader, optimizer, schedule, main_loss_
 
 
 def train_lel_zz_custom_statevec_with_uncomp(model, dataloader, optimizer, schedule, 
-                                              main_loss_fn=jax_mse_complex_loss_aligned, epochs=1):
+                                              main_loss_fn=jax_fidelity_loss, epochs=1):
     """
     Train LEL-ZZ model with uncomputation using custom statevector backend.
     
@@ -235,7 +235,7 @@ def train_lel_zz_custom_statevec_with_uncomp(model, dataloader, optimizer, sched
 
 
 def train_lel_zz_custom_statevec_no_uncomp(model, dataloader, optimizer, schedule,
-                                            main_loss_fn=jax_mse_complex_loss_aligned, epochs=1):
+                                            main_loss_fn=jax_fidelity_loss, epochs=1):
     """
     Train LEL-ZZ model without uncomputation using custom statevector backend.
     
@@ -326,9 +326,9 @@ def train_lel_zz_custom_statevec_no_uncomp(model, dataloader, optimizer, schedul
         print(f"Epoch {e+1} summary - Mean Fidelity: {mean_fidelity:.4e}, Mean Loss: {mean_loss:.4e}")
 
 
-def train_lel_zz_single_block_progressive(
+def train_lel_zz_single_block_progressive_no_uncomp(
     model, dataloader, optimizer, schedule, block_idx,
-    main_loss_fn=jax_mse_complex_loss_aligned, epochs=1
+    main_loss_fn=jax_fidelity_loss, epochs=1
 ):
     """
     Train a single PQC block progressively while keeping previous blocks frozen.
@@ -363,6 +363,9 @@ def train_lel_zz_single_block_progressive(
                 frozen_pre = jax.lax.stop_gradient(pre_quats[:block_idx])
                 frozen_theta = jax.lax.stop_gradient(theta_zz[:block_idx])
                 frozen_post = jax.lax.stop_gradient(post_quats[:block_idx])
+                # frozen_pre = pre_quats[:block_idx]
+                # frozen_theta = theta_zz[:block_idx]
+                # frozen_post = post_quats[:block_idx]
                 
                 # Concatenate frozen + trainable
                 full_pre = jnp.concatenate([frozen_pre, trainable_pre], axis=0)

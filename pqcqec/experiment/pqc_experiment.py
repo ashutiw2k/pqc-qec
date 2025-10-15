@@ -15,11 +15,11 @@ from ..training.jax_loss_functions import jax_pure_state_fidelity, jax_mse_compl
 from ..training.jax_train_functions import (
     train_pqc_model_with_uncomp, train_pqc_model_no_uncomp, 
     train_lel_zz_custom_statevec_with_uncomp, train_lel_zz_custom_statevec_no_uncomp,
-    train_lel_zz_single_block_progressive
+    train_lel_zz_single_block_progressive_no_uncomp
 )
 from ..utils.jax_utils import JAXStateDataset, JAXDataLoader, JAXStateMeasuredDataset
 
-from ..simulate.jax_statevector import build_jax_circuit, run_many_states
+from ..simulate.jax_statevector import build_jax_circuit, jax_run_many_states
 
 def pqc_experiment_runner(
     num_qubits, num_gates, gate_blocks, pqc_blocks, 
@@ -201,7 +201,7 @@ def pqc_experiment_custom_statevec_runner(
     else:
         noise_model = PennylaneNoisyGates(seed=jax_prng_keys[1])
     
-    # Sample noise arrays (fixed during training)
+    # Single Qubit noise arrays extracted from noise model
     np.random.seed(seed)
     x_noise_arr = np.random.uniform(noise_model.x_noise_min, noise_model.x_noise_max, 
                                     (num_gates,)).astype(np.float32)
@@ -263,7 +263,7 @@ def pqc_experiment_custom_statevec_runner(
         # Generate them using the base circuit without noise
         print("Generating ideal target states for training...")
         base_jax_ops = build_jax_circuit(uncomp_circuit_ops)
-        ideal_train_outputs = run_many_states(num_qubits, *base_jax_ops, ideal_train_data)  
+        ideal_train_outputs = jax_run_many_states(num_qubits, *base_jax_ops, ideal_train_data)  
 
 
     train_dataset = JAXStateMeasuredDataset(ideal_train_data, ideal_train_outputs)
@@ -340,13 +340,13 @@ def pqc_experiment_custom_statevec_runner(
             noisy_test_ops.append(('rz', [q], [float(z_noise_arr[min(i, len(z_noise_arr)-1)])]))
     
     noisy_test_jax_ops = build_jax_circuit(noisy_test_ops)
-    noisy_state = run_many_states(num_qubits, *noisy_test_jax_ops, ideal_test_input_data)
+    noisy_state = jax_run_many_states(num_qubits, *noisy_test_jax_ops, ideal_test_input_data)
 
     # Determine ideal output state
     if not add_uncomputation:
         print(f'Generating ideal (noiseless) output states...')
         base_test_jax_ops = build_jax_circuit(uncomp_circuit_ops)
-        ideal_out_state = run_many_states(num_qubits, *base_test_jax_ops, ideal_test_input_data)
+        ideal_out_state = jax_run_many_states(num_qubits, *base_test_jax_ops, ideal_test_input_data)
     else:
         ideal_out_state = ideal_test_input_data
 
@@ -432,7 +432,7 @@ def pqc_experiment_progressive_custom_statevec_runner(
     else:
         noise_model = PennylaneNoisyGates(seed=jax_prng_keys[1])
     
-    # Sample noise arrays (fixed during training)
+    # Noise arrays developed from noise model. 
     np.random.seed(seed)
     x_noise_arr = np.random.uniform(noise_model.x_noise_min, noise_model.x_noise_max, 
                                     (num_gates,)).astype(np.float32)
@@ -468,7 +468,7 @@ def pqc_experiment_progressive_custom_statevec_runner(
     params = model.get_model_params()
     total_params = (params['pre_quaternions'].size + params['theta_zz'].size + 
                    params['post_quaternions'].size)
-    num_pqc_layers = params['pre_quaternions'].shape[0]
+    num_pqc_layers = model.num_pqc_layers
     
     print(f"Model initialized with {total_params} trainable parameters")
     print(f"  Pre-quaternions: {params['pre_quaternions'].shape}")
@@ -480,9 +480,9 @@ def pqc_experiment_progressive_custom_statevec_runner(
     TOTAL_STEPS = int(num_data / batch_size)
     WARMUP_STEPS = int(0.1 * TOTAL_STEPS)
     RESTART_PERIOD = int(0.25 * TOTAL_STEPS)
-    INIT_LR = 1e-4
+    INIT_LR = 1e-5
     PEAK_LR = 1e-2
-    MIN_LR = 5e-4
+    MIN_LR = 5e-5
 
     # Learning rate schedule
     warmup = optax.linear_schedule(
@@ -511,7 +511,7 @@ def pqc_experiment_progressive_custom_statevec_runner(
     # Progressive training loop
     for block_idx in range(num_pqc_layers):
         print(f"\n{'='*80}")
-        print(f"Training Block {block_idx + 1}/{num_pqc_layers}")
+        print(f"Training Block {block_idx}/{num_pqc_layers}")
         print(f"{'='*80}")
         
         # ========================================
@@ -523,7 +523,7 @@ def pqc_experiment_progressive_custom_statevec_runner(
         # Build noiseless circuit (no PQC, no noise) - just base gates
         noiseless_base_ops = uncomp_circuit_ops[:num_gates_for_target]
         noiseless_jax_ops = build_jax_circuit(noiseless_base_ops)
-        target_states = run_many_states(
+        target_states = jax_run_many_states(
             num_qubits, *noiseless_jax_ops, ideal_train_data
         )
         
@@ -552,7 +552,7 @@ def pqc_experiment_progressive_custom_statevec_runner(
         # ========================================
         # Train this block
         # ========================================
-        train_lel_zz_single_block_progressive(
+        train_lel_zz_single_block_progressive_no_uncomp(
             model=model,
             dataloader=train_dataloader,
             optimizer=optimizer,
@@ -560,9 +560,9 @@ def pqc_experiment_progressive_custom_statevec_runner(
             block_idx=block_idx,
             epochs=epochs_per_block
         )
-        
-        print(f"✓ Block {block_idx + 1} training complete!")
-        
+
+        print(f"✓ Block {block_idx} training complete!")
+
         # Log intermediate results
         params = model.get_model_params()
         pre_norm = jnp.linalg.norm(params['pre_quaternions'][block_idx])
@@ -595,12 +595,12 @@ def pqc_experiment_progressive_custom_statevec_runner(
             noisy_test_ops.append(('rz', [q], [float(z_noise_arr[min(i, len(z_noise_arr)-1)])]))
     
     noisy_test_jax_ops = build_jax_circuit(noisy_test_ops)
-    noisy_state = run_many_states(num_qubits, *noisy_test_jax_ops, ideal_test_input_data)
+    noisy_state = jax_run_many_states(num_qubits, *noisy_test_jax_ops, ideal_test_input_data)
 
     # Ideal output state (noiseless, no PQC)
     print(f'Generating ideal (noiseless) output states...')
     base_test_jax_ops = build_jax_circuit(uncomp_circuit_ops)
-    ideal_out_state = run_many_states(num_qubits, *base_test_jax_ops, ideal_test_input_data)
+    ideal_out_state = jax_run_many_states(num_qubits, *base_test_jax_ops, ideal_test_input_data)
 
     # Run full PQC model on test data
     print(f'Running full trained PQC model on test data...')

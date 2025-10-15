@@ -12,7 +12,7 @@ from pqcqec.utils.args import get_all_valid_args, parse_args
 
 def main():
     # Parse command line arguments
-    required_args = ['qubit_range', 'gate_range', 'gate_blocks', 'pqc_blocks', 'epochs', 'num_data', 'num_test', 'gate_dist', 'gpu', 'seed', 'batch', 'figure_output', 'uncomp']
+    required_args = ['qubit_range', 'gate_range', 'gate_blocks', 'pqc_blocks', 'epochs', 'num_data', 'num_test', 'gate_dist', 'gpu', 'seed', 'batch', 'figure_output', 'uncomp', 'noise_dist']
     script_description = 'Train an Interleaved PQC model for a specific qubit and gate configuration and plot the test experiment results.'
     args = parse_args(required_args, script_description=script_description)
 
@@ -32,7 +32,8 @@ def main():
         seed=seed,
         batch_size=config['batch'],
         return_fidelity=True,
-        add_uncomputation=config['uncomp']
+        add_uncomputation=config['uncomp'], 
+        noise_dist=config['noise_dist']
     )
 
     print(f"Final Fidelity (Noisy): {np.mean(fidelity_noisy):.4e}")

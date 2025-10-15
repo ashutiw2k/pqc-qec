@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from pqcqec.simulate.jax_statevector import (
-    create_zero_state, apply_cx, apply_rz, run_circuit_with_state, build_jax_circuit
+    jax_create_zero_state, apply_cx, apply_rz, jax_run_circuit_with_state, build_jax_circuit
 )
 
 
@@ -19,7 +19,7 @@ def test_zz_gate():
     
     # Create a 2-qubit test state
     n_qubits = 2
-    state = create_zero_state(n_qubits)
+    state = jax_create_zero_state(n_qubits)
     
     print(f"\nInitial state |00⟩: {state}")
     
@@ -53,7 +53,7 @@ def test_zz_gate():
     print("Comparing with θ=0 (no rotation)")
     print("="*60)
     
-    state_no_zz = create_zero_state(n_qubits)
+    state_no_zz = jax_create_zero_state(n_qubits)
     state_no_zz = apply_h(state_no_zz, n_qubits, 0)
     
     state_no_zz = apply_cx(state_no_zz, n_qubits, 0, 1)
@@ -89,8 +89,8 @@ def test_zz_gate():
     print(f"Circuit: {len(gate_ids)} gates")
     print(f"Thetas: {thetas}")
     
-    initial_state = create_zero_state(n_qubits)
-    final_state = run_circuit_with_state(initial_state, n_qubits, gate_ids, wire1s, wire2s, thetas)
+    initial_state = jax_create_zero_state(n_qubits)
+    final_state = jax_run_circuit_with_state(initial_state, n_qubits, gate_ids, wire1s, wire2s, thetas)
     
     print(f"Final state: {final_state}")
     print(f"Matches manual application: {jnp.allclose(final_state, state)}")
@@ -104,7 +104,7 @@ def test_zz_gate():
     theta_vals = jnp.array([0.1, 0.2, 0.3])
     
     # Create a superposition state
-    state_ring = create_zero_state(n_qubits_ring)
+    state_ring = jax_create_zero_state(n_qubits_ring)
     for q in range(n_qubits_ring):
         state_ring = apply_h(state_ring, n_qubits_ring, q)
     
@@ -122,7 +122,7 @@ def test_zz_gate():
     print(f"After ZZ ring: norm = {jnp.linalg.norm(state_ring):.6f}")
     
     # Compare with theta=0
-    state_ring_zero = create_zero_state(n_qubits_ring)
+    state_ring_zero = jax_create_zero_state(n_qubits_ring)
     for q in range(n_qubits_ring):
         state_ring_zero = apply_h(state_ring_zero, n_qubits_ring, q)
     
