@@ -491,7 +491,7 @@ def train_lel_zz_single_block_progressive_no_uncomp(
         # Epoch summary
         mean_fidelity = np.mean(epoch_fidelities)
         mean_loss = np.mean(epoch_losses)
-        print(f"  Block {block_idx} Epoch {e+1}: "
+        print(f"  Block {block_idx+1} Epoch {e+1}: "
               f"Fidelity={mean_fidelity:.4e}, Loss={mean_loss:.4e}")
 
     blk_start_idx = block_idx * model.num_pqc_layers
@@ -512,27 +512,206 @@ def train_lel_zz_single_block_progressive_no_uncomp(
         pqc_params['post_angles'][block_idx]
     )
 
-    print(f"  Fidelity of JUST Block {block_idx}")
-    ideal_out_block = jax_run_many_states(
-        model.num_qubits,
-        *build_jax_circuit(circuit_block_gates),
-        input_data
+    # print(f"  Fidelity of JUST Block {block_idx}")
+    # ideal_out_block = jax_run_many_states(
+    #     model.num_qubits,
+    #     *build_jax_circuit(circuit_block_gates),
+    #     input_data
+    # )
+
+    # noisy_out_block = jax_run_many_states(
+    #                 model.num_qubits,
+    #                 *build_jax_circuit(circuit_block_gates_noisy),
+    #                 input_data
+    #             )
+    # pqc_out_block = jax_run_many_states(
+    #                 model.num_qubits,
+    #                 *build_jax_circuit(circuit_block_gates_pqc),
+    #                 input_data
+    #             )
+
+    # block_fidelity_ideal = jax_pure_state_fidelity(ideal_out_block, noisy_out_block)
+    # block_fidelity_pqc = jax_pure_state_fidelity(ideal_out_block, pqc_out_block)
+
+    # print(f"    Noisy Block Fidelity (Ideal vs Noisy): {block_fidelity_ideal:.4e}")
+    # print(f"    PQC Corrected Block Fidelity (Ideal vs PQC): {block_fidelity_pqc:.4e}")
+
+
+def train_lel_zz_single_block_individual_no_uncomp(
+    model, dataloader, optimizer, schedule, block_idx,
+    main_loss_fn=jax_fidelity_loss, epochs=1
+):
+    """
+    Train a single PQC block in isolation (non-cascading).
+    
+    This function trains each block independently using only its associated gates.
+    Unlike progressive training which cascades through previous blocks, this
+    simulates ONLY the current block's gates.
+    
+    Circuit structure: G1, G2, G3, B1, G4, G5, G6, B2, ...
+    - Block 0: Trains B1 using only G1-G3
+    - Block 1: Trains B2 using only G4-G6
+    - etc.
+    
+    Args:
+        model: LELZZInterleavedQuaternionCustomStatevecModel instance
+        dataloader: JAXDataLoader with (input_states, target_states) batches
+        optimizer: Fresh Optax optimizer instance for this block
+        schedule: Learning rate schedule function
+        block_idx: Which block to train (0-indexed)
+        main_loss_fn: Loss function to minimize
+        epochs: Number of training epochs for this block
+    """
+    
+    @jax.jit
+    def update_step(pre_quat, theta_zz_val, post_quat, opt_state, input_data, target_data):
+        """Single optimization step for isolated block."""
+        
+        def loss_fn(trainable_pre, trainable_theta, trainable_post):
+            # Simulate only this block (no cascading)
+            measured = model.run_single_block_batch(
+                input_data, block_idx, trainable_pre, trainable_theta, trainable_post
+            )
+            return main_loss_fn(target_data, measured)
+        
+        # Compute loss and gradients
+        loss, grads = jax.value_and_grad(loss_fn, argnums=(0, 1, 2))(
+            pre_quat, theta_zz_val, post_quat
+        )
+        
+        # Sanitize gradients
+        grads = jax.tree.map(
+            lambda g: jnp.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), 
+            grads
+        )
+        
+        # Apply optimizer update
+        updates, opt_state = optimizer.update(
+            grads, opt_state, (pre_quat, theta_zz_val, post_quat)
+        )
+        new_pre, new_theta, new_post = optax.apply_updates(
+            (pre_quat, theta_zz_val, post_quat), updates
+        )
+        
+        # Sanitize updated parameters
+        new_pre = jnp.nan_to_num(new_pre, nan=0.0, posinf=0.0, neginf=0.0)
+        new_theta = jnp.nan_to_num(new_theta, nan=0.0, posinf=0.0, neginf=0.0)
+        new_post = jnp.nan_to_num(new_post, nan=0.0, posinf=0.0, neginf=0.0)
+        
+        # Compute fidelity with updated parameters
+        measured = model.run_single_block_batch(
+            input_data, block_idx, new_pre, new_theta, new_post
+        )
+        fidelity = jax_pure_state_fidelity(target_data, measured)
+        
+        return opt_state, new_pre, new_theta, new_post, loss, fidelity
+    
+    # Initialize optimizer for this block's parameters only
+    params = model.get_model_params()
+    trainable_params = (
+        params['pre_quaternions'][block_idx:block_idx+1],
+        params['theta_zz'][block_idx:block_idx+1],
+        params['post_quaternions'][block_idx:block_idx+1]
     )
+    opt_state = optimizer.init(trainable_params)
+    
+    global_step = 0
+    
+    # Training loop
+    for e in range(epochs):
+        print(f"  Epoch {e + 1}/{epochs}")
+        data_iterator = tqdm(
+            dataloader, 
+            desc=f"  Block {block_idx}", 
+            total=len(dataloader), 
+            leave=False
+        )
+        
+        epoch_fidelities = []
+        epoch_losses = []
+        
+        for batch in data_iterator:
+            input_data, target_data = batch[0], batch[1]
+            
+            # Get current block parameters
+            params = model.get_model_params()
+            block_pre = params['pre_quaternions'][block_idx:block_idx+1]
+            block_theta = params['theta_zz'][block_idx:block_idx+1]
+            block_post = params['post_quaternions'][block_idx:block_idx+1]
+            
+            # Update step
+            opt_state, new_pre, new_theta, new_post, loss, fidelity = update_step(
+                block_pre, block_theta, block_post,
+                opt_state, 
+                input_data, 
+                target_data
+            )
+            
+            # Update model (only current block changes)
+            full_pre = params['pre_quaternions'].at[block_idx].set(new_pre[0])
+            full_theta = params['theta_zz'].at[block_idx].set(new_theta[0])
+            full_post = params['post_quaternions'].at[block_idx].set(new_post[0])
+            
+            model.set_model_params(full_pre, full_theta, full_post)
+            
+            # Track metrics
+            epoch_fidelities.append(float(fidelity))
+            epoch_losses.append(float(loss))
 
-    noisy_out_block = jax_run_many_states(
-                    model.num_qubits,
-                    *build_jax_circuit(circuit_block_gates_noisy),
-                    input_data
-                )
-    pqc_out_block = jax_run_many_states(
-                    model.num_qubits,
-                    *build_jax_circuit(circuit_block_gates_pqc),
-                    input_data
-                )
+            current_lr = schedule(global_step)
+            data_iterator.set_postfix_str(
+                f"Fid: {fidelity:.4e}, Loss: {loss:.4e}, LR: {current_lr:.4e}"
+            )
+            
+            global_step += 1
+        
+        # Epoch summary
+        mean_fidelity = np.mean(epoch_fidelities)
+        mean_loss = np.mean(epoch_losses)
+        print(f"  Block {block_idx+1} Epoch {e+1}: "
+              f"Fidelity={mean_fidelity:.4e}, Loss={mean_loss:.4e}")
 
-    block_fidelity_ideal = jax_pure_state_fidelity(ideal_out_block, noisy_out_block)
-    block_fidelity_pqc = jax_pure_state_fidelity(ideal_out_block, pqc_out_block)
+    # Diagnostic: Evaluate isolated block performance
+    # blk_start_idx = block_idx * model.gate_blocks
+    # blk_end_idx = (block_idx + 1) * model.gate_blocks
+    # pqc_params = model.get_pqc_params()
 
-    print(f"    Noisy Block Fidelity (Ideal vs Noisy): {block_fidelity_ideal:.4e}")
-    print(f"    PQC Corrected Block Fidelity (Ideal vs PQC): {block_fidelity_pqc:.4e}")
+    # circuit_block_gates = model.base_circuit_ops[blk_start_idx:blk_end_idx]
+    # circuit_block_gates_noisy = add_noise_to_base_ops(
+    #     circuit_block_gates, 
+    #     model.x_noise[blk_start_idx:blk_end_idx], 
+    #     model.z_noise[blk_start_idx:blk_end_idx]
+    # )
+    
+    # circuit_block_gates_pqc = circuit_block_gates_noisy + list_LEL_ZZ(
+    #     model.num_qubits,
+    #     pqc_params['pre_angles'][block_idx],
+    #     pqc_params['theta_zz'][block_idx],
+    #     pqc_params['post_angles'][block_idx]
+    # )
+
+    # print(f"  Fidelity of JUST Block {block_idx}")
+    # ideal_out_block = jax_run_many_states(
+    #     model.num_qubits,
+    #     *build_jax_circuit(circuit_block_gates),
+    #     input_data
+    # )
+
+    # noisy_out_block = jax_run_many_states(
+    #     model.num_qubits,
+    #     *build_jax_circuit(circuit_block_gates_noisy),
+    #     input_data
+    # )
+    
+    # pqc_out_block = jax_run_many_states(
+    #     model.num_qubits,
+    #     *build_jax_circuit(circuit_block_gates_pqc),
+    #     input_data
+    # )
+
+    # block_fidelity_ideal = jax_pure_state_fidelity(ideal_out_block, noisy_out_block)
+    # block_fidelity_pqc = jax_pure_state_fidelity(ideal_out_block, pqc_out_block)
+
+    # print(f"    Noisy Block Fidelity (Ideal vs Noisy): {block_fidelity_ideal:.4e}")
+    # print(f"    PQC Corrected Block Fidelity (Ideal vs PQC): {block_fidelity_pqc:.4e}")
 

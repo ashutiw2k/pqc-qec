@@ -5,7 +5,7 @@ This script runs a small-scale experiment to verify that the progressive
 training implementation works correctly.
 """
 
-from pqcqec.experiment.pqc_experiment import pqc_experiment_progressive_custom_statevec_runner
+from pqcqec.experiment.pqc_experiment import pqc_experiment_blocks_custom_statevec_runner
 
 def test_progressive_training():
     """Run a small test of progressive block-by-block training."""
@@ -16,7 +16,7 @@ def test_progressive_training():
     
     # Small-scale test parameters
     num_qubits = 5
-    num_gates = 50  # Will create 1 PQC layers with gate_blocks=10
+    num_gates = 500  # Will create 1 PQC layers with gate_blocks=10
     gate_blocks = 10
     pqc_blocks = 1
     epochs_per_block = 5  # Small number for quick testing
@@ -49,7 +49,7 @@ def test_progressive_training():
     try:
         # Run progressive training
         circuit_ops, circuit_tokens, mean_fidelity, pqc_params = \
-            pqc_experiment_progressive_custom_statevec_runner(
+            pqc_experiment_blocks_custom_statevec_runner(
                 num_qubits=num_qubits,
                 num_gates=num_gates,
                 gate_blocks=gate_blocks,
@@ -62,7 +62,8 @@ def test_progressive_training():
                 seed=seed,
                 batch_size=batch_size,
                 return_fidelity=False,
-                add_uncomputation=False
+                add_uncomputation=False,
+                use_individual_training=True  # Individual training
             )
         
         print("\n" + "=" * 80)

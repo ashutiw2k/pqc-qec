@@ -64,6 +64,13 @@ class CircuitTemplate:
                 
                 param_array = param_dict[param_source]
                 
+                # Validate array is not empty
+                if hasattr(param_array, 'shape') and param_array.shape[0] == 0:
+                    raise ValueError(
+                        f"Empty parameter array for source '{param_source}' at gate {i}. "
+                        f"Array shape: {param_array.shape}, param_idx: {param_idx}"
+                    )
+                
                 # Handle different parameter indexing schemes
                 if isinstance(param_idx, tuple):
                     # Multi-dimensional indexing (e.g., for pre_params[i][j])

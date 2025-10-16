@@ -15,7 +15,8 @@ from ..training.jax_loss_functions import jax_pure_state_fidelity, jax_mse_compl
 from ..training.jax_train_functions import (
     train_pqc_model_with_uncomp, train_pqc_model_no_uncomp, 
     train_lel_zz_custom_statevec_with_uncomp, train_lel_zz_custom_statevec_no_uncomp,
-    train_lel_zz_single_block_progressive_no_uncomp
+    train_lel_zz_single_block_progressive_no_uncomp,
+    train_lel_zz_single_block_individual_no_uncomp
 )
 from ..utils.jax_utils import JAXStateDataset, JAXDataLoader, JAXStateMeasuredDataset
 
@@ -368,23 +369,28 @@ def pqc_experiment_custom_statevec_runner(
     return uncomp_circuit_ops, model.get_circuit_tokens(), jnp.mean(fidelity_ideal_pqc).item(), model.get_pqc_params()
 
 
-def pqc_experiment_progressive_custom_statevec_runner(
+def pqc_experiment_blocks_custom_statevec_runner(
     num_qubits, num_gates, gate_blocks, pqc_blocks, 
     epochs_per_block, num_data, num_test, 
     noise_dist=None, gate_dist=None, seed=0, batch_size=32,
-    return_fidelity=False, add_uncomputation=False
+    return_fidelity=False, add_uncomputation=False, use_individual_training=False
 ):
     """
-    Run progressive block-by-block training experiment with custom statevector backend.
+    Run progressive/individual block-by-block training experiment with custom statevector backend.
     
-    This function trains PQC blocks sequentially rather than all at once. Each block
-    is trained to correct errors from its portion of the circuit while previous blocks
-    are frozen. This can lead to better gradient flow and more stable training.
+    This function trains PQC blocks sequentially rather than all at once. Supports two modes:
     
-    Training Strategy:
+    **Progressive Training (use_individual_training=False)**:
+        Each block is trained on cumulative gates with previous blocks frozen (cascading).
         - Phase 0: Train Block 0 on gates G1...Gk
         - Phase 1: Train Block 1 on gates G1...G2k (with Block 0 frozen)
         - Phase i: Train Block i on gates G1...G((i+1)k) (with Blocks 0...i-1 frozen)
+    
+    **Individual Training (use_individual_training=True)**:
+        Each block is trained in isolation on only its own gates (non-cascading).
+        - Phase 0: Train Block 0 on gates G1...Gk
+        - Phase 1: Train Block 1 on gates G(k+1)...G2k (independent of Block 0)
+        - Phase i: Train Block i on gates G(ik+1)...G((i+1)k) (independent of all others)
     
     Args:
         num_qubits: Number of qubits in the circuit
@@ -400,6 +406,7 @@ def pqc_experiment_progressive_custom_statevec_runner(
         batch_size: Batch size for training
         return_fidelity: If True, return fidelity arrays instead of circuit info
         add_uncomputation: If True, add circuit inverse (NOT YET IMPLEMENTED)
+        use_individual_training: If True, use individual block training; if False, use progressive
     
     Returns:
         If return_fidelity=False:
@@ -502,26 +509,40 @@ def pqc_experiment_progressive_custom_statevec_runner(
     )
 
     print(f"\n{'='*80}")
-    print(f"Progressive Block-by-Block Training")
+    if use_individual_training:
+        print(f"Individual Block Training (Non-Cascading)")
+    else:
+        print(f"Progressive Block-by-Block Training (Cascading)")
     print(f"{'='*80}")
     print(f"Total PQC layers: {num_pqc_layers}")
     print(f"Epochs per block: {epochs_per_block}")
     print(f"Batch size: {batch_size}")
     
-    # Progressive training loop
+    # Block-by-block training loop
     for block_idx in range(num_pqc_layers):
         print(f"\n{'='*80}")
-        print(f"Training Block {block_idx}/{num_pqc_layers}")
+        print(f"Training Block {block_idx+1}/{num_pqc_layers}")
         print(f"{'='*80}")
         
         # ========================================
         # Generate target states for this block
         # ========================================
-        num_gates_for_target = gate_blocks * (block_idx + 1)
-        print(f"Target: Ideal noiseless output after {num_gates_for_target} gates")
+        if use_individual_training:
+            # Individual training: target is output of ONLY this block's gates
+            gate_start = gate_blocks * block_idx
+            gate_end = gate_blocks * (block_idx + 1)
+            print(f"Target: Ideal noiseless output of gates {gate_start} to {gate_end-1} (isolated)")
+            
+            # Build noiseless circuit for ONLY this block's gates
+            noiseless_base_ops = uncomp_circuit_ops[gate_start:gate_end]
+        else:
+            # Progressive training: target is output after gates 0 to block_idx
+            num_gates_for_target = gate_blocks * (block_idx + 1)
+            print(f"Target: Ideal noiseless output after {num_gates_for_target} gates (cumulative)")
+            
+            # Build noiseless circuit for gates 0 to block_idx
+            noiseless_base_ops = uncomp_circuit_ops[:num_gates_for_target]
         
-        # Build noiseless circuit (no PQC, no noise) - just base gates
-        noiseless_base_ops = uncomp_circuit_ops[:num_gates_for_target]
         noiseless_jax_ops = build_jax_circuit(noiseless_base_ops)
         target_states = jax_run_many_states(
             num_qubits, *noiseless_jax_ops, ideal_train_data
@@ -552,16 +573,26 @@ def pqc_experiment_progressive_custom_statevec_runner(
         # ========================================
         # Train this block
         # ========================================
-        train_lel_zz_single_block_progressive_no_uncomp(
-            model=model,
-            dataloader=train_dataloader,
-            optimizer=optimizer,
-            schedule=schedule,
-            block_idx=block_idx,
-            epochs=epochs_per_block
-        )
+        if use_individual_training:
+            train_lel_zz_single_block_individual_no_uncomp(
+                model=model,
+                dataloader=train_dataloader,
+                optimizer=optimizer,
+                schedule=schedule,
+                block_idx=block_idx,
+                epochs=epochs_per_block
+            )
+        else:
+            train_lel_zz_single_block_progressive_no_uncomp(
+                model=model,
+                dataloader=train_dataloader,
+                optimizer=optimizer,
+                schedule=schedule,
+                block_idx=block_idx,
+                epochs=epochs_per_block
+            )
 
-        print(f"✓ Block {block_idx} training complete!")
+        print(f"✓ Block {block_idx+1} training complete!")
 
         # Log intermediate results
         params = model.get_model_params()
@@ -569,11 +600,14 @@ def pqc_experiment_progressive_custom_statevec_runner(
         theta_norm = jnp.linalg.norm(params['theta_zz'][block_idx])
         post_norm = jnp.linalg.norm(params['post_quaternions'][block_idx])
         
-        print(f"  Block {block_idx} parameter norms: "
+        print(f"  Block {block_idx+1} parameter norms: "
               f"pre={pre_norm:.4f}, theta={theta_norm:.4f}, post={post_norm:.4f}")
     
     print(f"\n{'='*80}")
-    print(f"Progressive Training Complete!")
+    if use_individual_training:
+        print(f"Individual Block Training Complete!")
+    else:
+        print(f"Progressive Training Complete!")
     print(f"{'='*80}")
     
     # ========================================

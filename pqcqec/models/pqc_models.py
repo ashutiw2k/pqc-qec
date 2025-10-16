@@ -411,6 +411,11 @@ class LELZZInterleavedQuaternionCustomStatevecModel:
         self.partial_templates = {}
         for idx in range(self.num_pqc_layers):
             self.partial_templates[idx] = self.build_partial_template(idx)
+        
+        # Cache individual block templates for isolated training
+        self.individual_block_templates = {}
+        for idx in range(self.num_pqc_layers):
+            self.individual_block_templates[idx] = self.build_individual_block_template(idx)
 
 
 
@@ -493,6 +498,75 @@ class LELZZInterleavedQuaternionCustomStatevecModel:
         
         return output_states
     
+    def run_single_block_batch(self, input_states, block_idx, 
+                               pre_quats=None, theta_zz=None, post_quats=None):
+        """
+        Run ONLY the specified block in isolation (not cascaded).
+        
+        This simulates: input → base_gates[block_idx] → PQC[block_idx] → output
+        
+        Unlike run_model_batch_up_to_block which simulates blocks 0→block_idx,
+        this only simulates the single specified block with its gates.
+        
+        Args:
+            input_states: Batch of input quantum states (B, 2^n)
+            block_idx: Which block to simulate (0-indexed)
+            pre_quats: Pre-layer quaternions (optional, uses stored if None)
+            theta_zz: ZZ angles (optional, uses stored if None)
+            post_quats: Post-layer quaternions (optional, uses stored if None)
+        
+        Returns:
+            output_states: Batch of output quantum states (B, 2^n)
+        """
+        
+        # Use provided params or default to stored
+        if pre_quats is None:
+            # No params provided, extract from stored parameters
+            block_pre_quat = self.pre_quaternions[block_idx:block_idx+1]
+            block_theta_zz = self.theta_zz[block_idx:block_idx+1]
+            block_post_quat = self.post_quaternions[block_idx:block_idx+1]
+        else:
+            # Params provided (already sliced for this block in training)
+            block_pre_quat = pre_quats
+            block_theta_zz = theta_zz
+            block_post_quat = post_quats
+        
+        # Convert quaternions to angles
+        pre_angles = self.convert_quaternions_to_angles(block_pre_quat)
+        post_angles = self.convert_quaternions_to_angles(block_post_quat)
+        
+        # Get cached template for this block
+        block_template = self.individual_block_templates[block_idx]
+        
+        # Calculate gate indices for this block
+        gate_start = self.gate_blocks * block_idx
+        gate_end = self.gate_blocks * (block_idx + 1)
+        
+        # Build parameter dictionary for single block
+        # Note: Arrays are JAX arrays, need to keep them as-is for differentiation
+        param_dict = {
+            'base': self.base_params[gate_start:gate_end],
+            'x_noise': self.x_noise[gate_start:gate_end],
+            'z_noise': self.z_noise[gate_start:gate_end],
+            'pre_params': pre_angles,  # Shape: (1, num_qubits, 3)
+            'theta_zz': block_theta_zz,  # Shape: (1, num_qubits)
+            'post_params': post_angles  # Shape: (1, num_qubits, 3)
+        }
+        
+        # Instantiate template with current parameters
+        circuit_ops = block_template.instantiate(param_dict)
+        
+        # Convert to JAX format
+        gate_ids, wire1s, wire2s, thetas = build_jax_circuit(circuit_ops)
+        
+        # Run batched simulation with JAX
+        output_states = jax_run_many_states(
+            self.num_qubits, gate_ids, wire1s, wire2s, thetas, 
+            input_states
+        )
+        
+        return output_states
+    
     def get_pqc_params(self):
         """Get PQC parameters as angles (for inspection/logging)."""
         pre_angles = self.convert_quaternions_to_angles(self.pre_quaternions)
@@ -518,6 +592,31 @@ class LELZZInterleavedQuaternionCustomStatevecModel:
         }
         
         return self.template.instantiate(param_dict)
+    
+    def build_individual_block_template(self, block_idx):
+        """
+        Build a circuit template for ONLY the specified block (isolated).
+        
+        This creates a template containing only the gates for one specific block,
+        used for individual/isolated block training.
+        
+        Args:
+            block_idx: Which block to create template for (0-indexed)
+        
+        Returns:
+            CircuitTemplate for just this block's gates + one PQC layer
+        """
+        gate_start = self.gate_blocks * block_idx
+        gate_end = self.gate_blocks * (block_idx + 1)
+        block_base_ops = self.base_circuit_ops[gate_start:gate_end]
+        
+        return build_pqc_circuit_template(
+            base_ops=block_base_ops,
+            num_qubits=self.num_qubits,
+            num_gate_blocks=self.gate_blocks,
+            add_noise=True,
+            add_pqc_layers=True
+        )
     
     def build_partial_template(self, max_block_idx):
         """
