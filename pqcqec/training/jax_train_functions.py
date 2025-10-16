@@ -9,7 +9,11 @@ from typing import Callable
 
 from .jax_loss_functions import jax_mse_complex_loss_aligned, jax_pure_state_fidelity, jax_fidelity_loss, jax_hilbert_schmidt_density_loss
 from ..simulate.simulate import run_ideal_circuit, run_circuit_with_noise_model
+from ..simulate.jax_statevector import jax_run_many_states, build_jax_circuit
+from ..circuits.pqc_circuits import list_LEL_ZZ
+
 from ..noise.simple_noise import PennylaneNoisyGates
+from ..noise.builder import add_noise_to_base_ops
 
 def train_pqc_model_with_uncomp(model, dataloader, optimizer, schedule, main_loss_fn=jax_fidelity_loss, epochs=1):
 
@@ -476,7 +480,7 @@ def train_lel_zz_single_block_progressive_no_uncomp(
             # Track metrics
             epoch_fidelities.append(float(fidelity))
             epoch_losses.append(float(loss))
-            
+
             current_lr = schedule(global_step)
             data_iterator.set_postfix_str(
                 f"Fid: {fidelity:.4e}, Loss: {loss:.4e}, LR: {current_lr:.4e}"
@@ -490,4 +494,45 @@ def train_lel_zz_single_block_progressive_no_uncomp(
         print(f"  Block {block_idx} Epoch {e+1}: "
               f"Fidelity={mean_fidelity:.4e}, Loss={mean_loss:.4e}")
 
+    blk_start_idx = block_idx * model.num_pqc_layers
+    blk_end_idx = (block_idx + 1) * model.num_pqc_layers
+    pqc_params = model.get_pqc_params()
+
+    circuit_block_gates = model.base_circuit_ops[blk_start_idx:blk_end_idx]
+    circuit_block_gates_noisy = add_noise_to_base_ops(
+        circuit_block_gates, 
+        model.x_noise[blk_start_idx:blk_end_idx], 
+        model.z_noise[blk_start_idx:blk_end_idx]
+        )
+    
+    circuit_block_gates_pqc = circuit_block_gates_noisy + list_LEL_ZZ(
+        model.num_qubits,
+        pqc_params['pre_angles'][block_idx],
+        pqc_params['theta_zz'][block_idx],
+        pqc_params['post_angles'][block_idx]
+    )
+
+    print(f"  Fidelity of JUST Block {block_idx}")
+    ideal_out_block = jax_run_many_states(
+        model.num_qubits,
+        *build_jax_circuit(circuit_block_gates),
+        input_data
+    )
+
+    noisy_out_block = jax_run_many_states(
+                    model.num_qubits,
+                    *build_jax_circuit(circuit_block_gates_noisy),
+                    input_data
+                )
+    pqc_out_block = jax_run_many_states(
+                    model.num_qubits,
+                    *build_jax_circuit(circuit_block_gates_pqc),
+                    input_data
+                )
+
+    block_fidelity_ideal = jax_pure_state_fidelity(ideal_out_block, noisy_out_block)
+    block_fidelity_pqc = jax_pure_state_fidelity(ideal_out_block, pqc_out_block)
+
+    print(f"    Noisy Block Fidelity (Ideal vs Noisy): {block_fidelity_ideal:.4e}")
+    print(f"    PQC Corrected Block Fidelity (Ideal vs PQC): {block_fidelity_pqc:.4e}")
 

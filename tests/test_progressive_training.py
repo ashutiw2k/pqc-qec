@@ -16,7 +16,7 @@ def test_progressive_training():
     
     # Small-scale test parameters
     num_qubits = 5
-    num_gates = 500  # Will create 1 PQC layers with gate_blocks=10
+    num_gates = 50  # Will create 1 PQC layers with gate_blocks=10
     gate_blocks = 10
     pqc_blocks = 1
     epochs_per_block = 5  # Small number for quick testing
