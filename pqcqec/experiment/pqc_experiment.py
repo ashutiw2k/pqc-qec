@@ -277,8 +277,8 @@ def pqc_experiment_custom_statevec_runner(
     RESTART_PERIOD = int(0.25 * TOTAL_STEPS)
 
     INIT_LR = 1e-4
-    PEAK_LR = 1e-2
-    MIN_LR = 5e-4
+    PEAK_LR = 5e-3
+    MIN_LR = 5e-5
 
     # 1. Warmup schedule
     warmup = optax.linear_schedule(

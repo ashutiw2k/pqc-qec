@@ -164,7 +164,7 @@ def train_lel_zz_custom_statevec_with_uncomp(model, dataloader, optimizer, sched
             # Run model with current PQC parameters
             measured = model.run_model_batch(ideal_data, pre_q, theta, post_q)
             # With uncomputation, target is the input itself
-            return main_loss_fn(ideal_data, measured)
+            return jax.vmap(main_loss_fn, in_axes=(0, 0))(ideal_data, measured)
         
         # Compute loss and gradients w.r.t. all PQC parameters
         loss, grads = jax.value_and_grad(loss_fn, argnums=(0, 1, 2))(
@@ -255,7 +255,8 @@ def train_lel_zz_custom_statevec_no_uncomp(model, dataloader, optimizer, schedul
             # Run model with current PQC parameters
             measured = model.run_model_batch(input_data, pre_q, theta, post_q)
             # Target is the ideal noiseless output
-            return main_loss_fn(target_data, measured)
+            per_state_loss = jax.vmap(main_loss_fn, in_axes=(0, 0))(target_data, measured)
+            return jnp.mean(per_state_loss)
         
         # Compute loss and gradients w.r.t. all PQC parameters
         loss, grads = jax.value_and_grad(loss_fn, argnums=(0, 1, 2))(
@@ -714,4 +715,3 @@ def train_lel_zz_single_block_individual_no_uncomp(
 
     # print(f"    Noisy Block Fidelity (Ideal vs Noisy): {block_fidelity_ideal:.4e}")
     # print(f"    PQC Corrected Block Fidelity (Ideal vs PQC): {block_fidelity_pqc:.4e}")
-

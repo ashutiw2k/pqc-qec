@@ -1,7 +1,36 @@
-
 import argparse
 import sys
 import os
+import ctypes
+from pathlib import Path
+
+
+def _preload_nvjitlink() -> None:
+    """Ensure the correct NVJitLink shared library is loaded before importing torch."""
+    if os.name != "posix":
+        return
+
+    lib_root = (
+        Path(sys.prefix)
+        / "lib"
+        / f"python{sys.version_info.major}.{sys.version_info.minor}"
+        / "site-packages"
+        / "nvidia"
+    )
+    candidate = lib_root / "nvjitlink" / "lib" / "libnvJitLink.so.12"
+    if not candidate.exists():
+        return
+
+    try:
+        ctypes.CDLL(
+            str(candidate),
+            mode=getattr(ctypes, "RTLD_GLOBAL", ctypes.RTLD_LOCAL),
+        )
+    except OSError:
+        pass
+
+
+_preload_nvjitlink()
 import torch
 from .constants import *
 import json
