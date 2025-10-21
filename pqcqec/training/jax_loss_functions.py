@@ -55,6 +55,8 @@ def jax_pure_state_fidelity(psi: jnp.ndarray, phi: jnp.ndarray) -> jnp.ndarray:
     # Numerical guard: clip to [0, 1] to avoid tiny overshoots
     return jnp.clip(fidelity.real, 0.0, 1.0)
 
+jax_pure_state_fidelity_batched = jax.vmap(jax_pure_state_fidelity, in_axes=(0, 0))
+
 @jax.jit
 def jax_l2_loss_ignore_global_phase(psi, phi):
     # Align global phase
