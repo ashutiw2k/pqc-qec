@@ -13,6 +13,17 @@ class JAXStateDataset:
     def __len__(self):
         return len(self.ideal_data)
 
+class JAXStateMeasuredDataset:
+    def __init__(self, input_data, measured_data):
+        self.input_data = input_data
+        self.measured_data = measured_data
+
+    def __getitem__(self, index):
+        return self.input_data[index], self.measured_data[index]
+
+    def __len__(self):
+        return len(self.input_data)
+
 class JAXDataLoader:
     def __init__(self, dataset, batch_size=32, shuffle=True, drop_last=False, seed=None):
         self.dataset = dataset

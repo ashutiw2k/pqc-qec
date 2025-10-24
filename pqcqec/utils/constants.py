@@ -3,6 +3,7 @@
 
 import pennylane as qml
 from qiskit.circuit.library import XGate, HGate, ZGate, YGate, RXGate, RYGate, RZGate, CXGate, CZGate, CCXGate, SwapGate
+import enum
 
 PQC_MAPPINGS = {
     # 'unique_rzrxrz' : {'qiskit': qiskit_PQC_RZRXRZ_unique, 'pennylane':pennylane_PQC_RZRXRZ_unique, 'mult':3},
@@ -34,3 +35,27 @@ QUBITS_FOR_GATES = {'x':1, 'h':1, 'z':1, 'y':1,
                     'ccx': 3}
 
 GATE_IS_DIRECTIONAL = {'cx': True, 'cz': False, 'ccx': True, 'swap': False}  # True means control->target matters, False means it doesn't
+
+
+# Gate ENUMS
+class GateEnums(enum.IntEnum):
+    GATE_X  = enum.auto()
+    GATE_Z  = enum.auto()
+    GATE_H  = enum.auto()
+    GATE_RX = enum.auto()
+    GATE_RY = enum.auto()
+    GATE_RZ = enum.auto()
+    GATE_CX = enum.auto()
+    GATE_CZ = enum.auto()
+
+
+GATE_DICT = {
+    'x': GateEnums.GATE_X,
+    'z': GateEnums.GATE_Z,
+    'h': GateEnums.GATE_H,
+    'rx': GateEnums.GATE_RX,
+    'ry': GateEnums.GATE_RY,
+    'rz': GateEnums.GATE_RZ,
+    'cx': GateEnums.GATE_CX,
+    'cz': GateEnums.GATE_CZ
+}

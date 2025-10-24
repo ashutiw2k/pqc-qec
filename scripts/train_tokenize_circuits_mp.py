@@ -17,7 +17,7 @@ import json
 from qiskit import QuantumCircuit
 from qiskit.qasm2 import dumps
 
-from pqcqec.experiment.pqc_experiment import pqc_experiment_runner
+from pqcqec.experiment.pqc_experiment import pqc_experiment_runner, pqc_experiment_custom_statevec_runner
 from pqcqec.circuits.generate import create_qiskit_circuit_from_ops
 
 from pqcqec.utils.args import get_all_valid_args, parse_args
@@ -126,7 +126,7 @@ def process_seed(args):
     snap_before = _proc_snapshot()
 
     try:
-        base_circ, pqc_circ, mean_fidelity_ideal_pqc, pqc_params = pqc_experiment_runner(
+        base_circ, pqc_circ, mean_fidelity_ideal_pqc, pqc_params = pqc_experiment_custom_statevec_runner(
             num_qubits=qubit,
             num_gates=gate,
             gate_blocks=gate_blocks,
@@ -154,10 +154,18 @@ def process_seed(args):
         }
 
     # Persist results and return compact status
+    # Handle pqc_params - could be dict or array depending on model
+    if isinstance(pqc_params, dict):
+        pqc_params_serializable = pqc_params
+    elif hasattr(pqc_params, 'tolist'):
+        pqc_params_serializable = pqc_params.tolist()
+    else:
+        pqc_params_serializable = pqc_params
+    
     token_data = {
         'seed': seed,
         'fidelity': mean_fidelity_ideal_pqc,
-        'pqc_params': pqc_params.tolist(),
+        'pqc_params': pqc_params_serializable,
         'base_circuit_tokens': base_circ,
         'pqc_circuit_tokens': pqc_circ,
         'base_circuit_qasm': dumps(create_qiskit_circuit_from_ops(base_circ, qubit)),

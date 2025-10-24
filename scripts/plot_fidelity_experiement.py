@@ -7,19 +7,19 @@ from pathlib import Path
 # Add project root to Python path
 sys.path.append(str(Path(__file__).parent.parent))  # Makes other scripts and functions discoverable
 
-from pqcqec.experiment.pqc_experiment import pqc_experiment_runner
+from pqcqec.experiment.pqc_experiment import pqc_experiment_runner, pqc_experiment_custom_statevec_runner
 from pqcqec.utils.args import get_all_valid_args, parse_args
 
 def main():
     # Parse command line arguments
-    required_args = ['qubit_range', 'gate_range', 'gate_blocks', 'pqc_blocks', 'epochs', 'num_data', 'num_test', 'gate_dist', 'gpu', 'seed', 'batch', 'figure_output']
+    required_args = ['qubit_range', 'gate_range', 'gate_blocks', 'pqc_blocks', 'epochs', 'num_data', 'num_test', 'gate_dist', 'gpu', 'seed', 'batch', 'figure_output', 'uncomp', 'noise_dist']
     script_description = 'Train an Interleaved PQC model for a specific qubit and gate configuration and plot the test experiment results.'
     args = parse_args(required_args, script_description=script_description)
 
     config = get_all_valid_args(args, include_args=required_args)
     seed = int(config['seed']) if config['seed'] is not None else 0
     # Run the experiment
-    fidelity_noisy, fidelity_pqc = pqc_experiment_runner(
+    fidelity_noisy, fidelity_pqc = pqc_experiment_custom_statevec_runner(
         num_qubits=config['qubits'][0],
         num_gates=config['gates'][0],
         gate_blocks=config['gate_blocks'],
@@ -31,7 +31,9 @@ def main():
         gpu=config['gpu'],
         seed=seed,
         batch_size=config['batch'],
-        return_fidelity=True
+        return_fidelity=True,
+        add_uncomputation=config['uncomp'], 
+        noise_dist=config['noise_dist']
     )
 
     print(f"Final Fidelity (Noisy): {np.mean(fidelity_noisy):.4e}")

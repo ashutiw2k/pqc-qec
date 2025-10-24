@@ -1,0 +1,64 @@
+================================================================================
+COMPREHENSIVE NOISE ANALYSIS REPORT
+Generated: 10-gate circuits with 0.10 X/Z noise
+================================================================================
+
+BASIC STATISTICS:
+  Total circuits: 59049
+  Mean fidelity: 0.941790
+  Median fidelity: 0.948560
+  Std deviation: 0.046104
+  Min/Max: 0.717086 / 0.999999
+
+NOISE IMPACT METRICS:
+  Mean infidelity (1-F): 0.058210
+  Mean error per gate: 0.006090
+  Mean decay rate (λ): 0.006121
+  Mean SNR: 14.19 dB
+  Coefficient of variation: 0.0490
+
+DISTRIBUTION CHARACTERISTICS:
+  Skewness: -0.9155
+  Kurtosis: 0.1883
+  IQR: 0.057079
+  Shannon Entropy: 3.9712 bits
+
+ROBUSTNESS THRESHOLDS:
+  Fidelity > 0.90: 78.55% of circuits
+  Fidelity > 0.80: 99.52% of circuits
+  Fidelity > 0.70: 100.00% of circuits
+
+PERCENTILES:
+  10th: 0.876373
+  25th: 0.917286
+  50th: 0.948560
+  75th: 0.974365
+  90th: 0.992842
+  95th: 0.993474
+  99th: 0.999926
+
+TOP 10 CIRCUITS:
+   1. z-h-x-z-z-x-z-x-x-x            F=0.999999
+   2. z-h-x-z-x-x-z-x-z-x            F=0.999999
+   3. x-x-x-x-z-x-z-z-x-h            F=0.999999
+   4. z-h-x-z-x-z-z-x-z-z            F=0.999999
+   5. z-z-z-x-x-z-x-z-z-h            F=0.999999
+   6. h-h-z-x-z-z-x-z-x-z            F=0.999999
+   7. z-z-z-x-z-z-x-z-x-h            F=0.999999
+   8. z-h-z-x-x-z-x-z-z-z            F=0.999999
+   9. z-h-z-x-z-x-x-z-x-x            F=0.999999
+  10. z-h-z-x-z-z-x-z-x-z            F=0.999999
+
+WORST 10 CIRCUITS:
+   1. z-h-h-h-h-h-h-h-h-h            F=0.717086
+   2. x-h-h-h-h-h-h-h-h-h            F=0.717086
+   3. h-h-h-h-h-h-h-h-h-h            F=0.720125
+   4. z-h-h-h-h-z-z-h-h-h            F=0.760397
+   5. x-h-h-h-x-x-h-h-h-h            F=0.760397
+   6. x-h-h-z-z-h-h-h-h-h            F=0.760401
+   7. z-h-h-h-h-h-x-x-h-h            F=0.760402
+   8. z-h-h-h-x-x-h-h-h-h            F=0.760407
+   9. x-h-h-h-h-z-z-h-h-h            F=0.760407
+  10. z-h-h-h-h-h-h-z-z-h            F=0.760418
+
+================================================================================

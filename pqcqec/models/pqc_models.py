@@ -1,6 +1,7 @@
 import copy
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pennylane as qml
 
 from typing import List
@@ -8,6 +9,10 @@ from typing import List
 from ..circuits.modify import pennylane_state_embedding
 from ..noise.simple_noise import PennylaneNoisyGates
 from ..utils.quaternions_utils import quaternion_to_zxz_angles, quaternion_to_xzy_angles
+
+from ..circuits.templates import build_pqc_circuit_template
+from ..simulate.statevector import build_numba_circuit, run_many_states
+from ..simulate.jax_statevector import build_jax_circuit, jax_run_many_states
 
 class StateInputModelInterleavedPQCModel:
     """A class to define the PQC model."""
@@ -134,8 +139,6 @@ class StateInputModelInterleavedPQCModel:
         # 3) Return the circuit tokens with PQC params:
         return tokens
     
-
-
 
 class StateInputModelInterleavedQuaternionModel:
     """A class to define the Quaternion PQC model."""
@@ -309,3 +312,409 @@ class StateInputModelInterleavedQuaternionModel:
 
         # 3) Return the circuit tokens with PQC params:
         return tokens
+
+
+class LELZZInterleavedQuaternionCustomStatevecModel:
+    """
+    LEL-ZZ PQC model using custom Numba statevector simulator.
+    
+    This model uses:
+    - Quaternion parametrization for pre/post local unitaries (RzRxRz blocks)
+    - Angle parametrization for ZZ entangling ring
+    - Circuit template for efficient instantiation
+    - Custom Numba simulator for fast forward pass
+    - JAX for automatic differentiation of PQC parameters
+    """
+    
+    def __init__(self, base_circuit_ops: List, num_qubits: int, 
+                 x_noise: np.ndarray, z_noise: np.ndarray,
+                 pqc_blocks: int = 1, gate_blocks: int = 1, 
+                 seed: int = 0, pqc_type: str = 'zxz'):
+        """
+        Initialize the LEL-ZZ PQC model with custom statevector backend.
+        
+        Args:
+            base_circuit_ops: List of base circuit operations (without noise/PQC)
+            num_qubits: Number of qubits in the circuit
+            x_noise: X-noise array for each gate (fixed during training)
+            z_noise: Z-noise array for each gate (fixed during training)
+            pqc_blocks: Number of PQC blocks
+            gate_blocks: Number of gates per block before adding PQC
+            seed: Random seed for parameter initialization
+            pqc_type: Type of PQC decomposition ('zxz' or 'xzy')
+        """
+        
+        self.num_qubits = num_qubits
+        self.base_circuit_ops = copy.deepcopy(base_circuit_ops)
+        self.num_gates = len(self.base_circuit_ops)
+        self.pqc_blocks = pqc_blocks
+        self.gate_blocks = gate_blocks
+        self.seed = seed
+        
+        # Store noise arrays (fixed during training)
+        self.x_noise = x_noise.astype(np.float32)
+        self.z_noise = z_noise.astype(np.float32)
+        
+        # Set up quaternion conversion function
+        if pqc_type == 'zxz':
+            self.quaternion_to_pqc_angles_fn = quaternion_to_zxz_angles
+        elif pqc_type == 'xzy':
+            self.quaternion_to_pqc_angles_fn = quaternion_to_xzy_angles
+        else:
+            raise ValueError(f"Unknown pqc_type: {pqc_type}")
+        
+        # Build circuit template once
+        self.template = build_pqc_circuit_template(
+            base_ops=base_circuit_ops,
+            num_qubits=num_qubits,
+            num_gate_blocks=gate_blocks,
+            add_noise=True,
+            add_pqc_layers=True
+        )
+
+        
+        # Initialize PQC parameters
+        self.num_pqc_layers = int(pqc_blocks * jnp.ceil(self.num_gates / gate_blocks))
+        self.quaternions_param_shape = (self.num_pqc_layers, num_qubits, 4)
+        
+        # Initialize quaternions with moderate random rotations
+        key = jax.random.PRNGKey(seed)
+        key_pre_axis, key_pre_angle, key_post_axis, key_post_angle = jax.random.split(key, 4)
+        
+        # Pre-layer quaternions
+        axes_pre = jax.random.normal(key_pre_axis, self.quaternions_param_shape[:-1] + (3,), dtype=jnp.float32)
+        axes_pre = axes_pre / (jnp.linalg.norm(axes_pre, axis=-1, keepdims=True) + 1e-12)
+        angles_pre = jax.random.uniform(key_pre_angle, self.quaternions_param_shape[:-1] + (1,), 
+                                       dtype=jnp.float32, minval=0.2, maxval=0.8)
+        w_pre = jnp.cos(0.5 * angles_pre)
+        v_pre = axes_pre * jnp.sin(0.5 * angles_pre)
+        self.pre_quaternions = jnp.concatenate([w_pre, v_pre], axis=-1).astype(jnp.float32)
+        
+        # Post-layer quaternions
+        axes_post = jax.random.normal(key_post_axis, self.quaternions_param_shape[:-1] + (3,), dtype=jnp.float32)
+        axes_post = axes_post / (jnp.linalg.norm(axes_post, axis=-1, keepdims=True) + 1e-12)
+        angles_post = jax.random.uniform(key_post_angle, self.quaternions_param_shape[:-1] + (1,), 
+                                        dtype=jnp.float32, minval=0.2, maxval=0.8)
+        w_post = jnp.cos(0.5 * angles_post)
+        v_post = axes_post * jnp.sin(0.5 * angles_post)
+        self.post_quaternions = jnp.concatenate([w_post, v_post], axis=-1).astype(jnp.float32)
+        
+        # ZZ entangling angles (start at zero)
+        self.theta_zz = jnp.zeros((self.num_pqc_layers, num_qubits,), dtype=jnp.float32)
+        
+        # Store base circuit parameters
+        self.base_params = np.array([
+            op[2][0] if len(op[2]) > 0 else 0.0 
+            for op in base_circuit_ops
+        ], dtype=np.float32)
+
+        self.partial_templates = {}
+        for idx in range(self.num_pqc_layers):
+            self.partial_templates[idx] = self.build_partial_template(idx)
+        
+        # Cache individual block templates for isolated training
+        self.individual_block_templates = {}
+        for idx in range(self.num_pqc_layers):
+            self.individual_block_templates[idx] = self.build_individual_block_template(idx)
+
+
+
+    
+    def get_model_params(self):
+        """Get all trainable model parameters."""
+        return {
+            'pre_quaternions': self.pre_quaternions,
+            'theta_zz': self.theta_zz,
+            'post_quaternions': self.post_quaternions
+        }
+    
+    def set_model_params(self, new_pre_params: jnp.ndarray, 
+                        new_theta_zz_params: jnp.ndarray,
+                        new_post_params: jnp.ndarray):
+        """Set model parameters with NaN checking."""
+        if jnp.isnan(new_pre_params).any():
+            raise ValueError(f"Pre-quaternions contain NaNs")
+        if jnp.isnan(new_theta_zz_params).any():
+            raise ValueError(f"Theta_zz contains NaNs")
+        if jnp.isnan(new_post_params).any():
+            raise ValueError(f"Post-quaternions contain NaNs")
+        
+        self.pre_quaternions = new_pre_params.astype(jnp.float32)
+        self.theta_zz = new_theta_zz_params.astype(jnp.float32)
+        self.post_quaternions = new_post_params.astype(jnp.float32)
+    
+    def convert_quaternions_to_angles(self, quaternions):
+        """Convert a batch of quaternions to PQC angles."""
+        return jax.vmap(jax.vmap(self.quaternion_to_pqc_angles_fn))(quaternions)
+    
+    def run_model_batch(self, input_states, pre_quats=None, theta_zz=None, post_quats=None):
+        """
+        Run the model on a batch of input states using JAX statevector simulator.
+        
+        Args:
+            input_states: Batch of input quantum states (B, 2^n)
+            pre_quats: Pre-layer quaternions (optional, uses stored if None)
+            theta_zz: ZZ angles (optional, uses stored if None)
+            post_quats: Post-layer quaternions (optional, uses stored if None)
+        
+        Returns:
+            output_states: Batch of output quantum states (B, 2^n)
+        """
+        
+        # Use provided params or default to stored
+        if pre_quats is None:
+            pre_quats = self.pre_quaternions
+        if theta_zz is None:
+            theta_zz = self.theta_zz
+        if post_quats is None:
+            post_quats = self.post_quaternions
+        
+        # Convert quaternions to angles (stays in JAX)
+        pre_angles = self.convert_quaternions_to_angles(pre_quats)  # (num_layers, num_qubits, 3)
+        post_angles = self.convert_quaternions_to_angles(post_quats)
+        
+        # Build parameter dictionary for template instantiation
+        # Keep as JAX arrays for differentiability
+        param_dict = {
+            'base': self.base_params,
+            'x_noise': self.x_noise,
+            'z_noise': self.z_noise,
+            'pre_params': pre_angles,
+            'theta_zz': theta_zz,
+            'post_params': post_angles
+        }
+        
+        # Instantiate template with current parameters
+        full_circuit_ops = self.template.instantiate(param_dict)
+        
+        # Convert to JAX format (produces JAX arrays)
+        gate_ids, wire1s, wire2s, thetas = build_jax_circuit(full_circuit_ops)
+        
+        # Run batched simulation with JAX (fully differentiable!)
+        output_states = jax_run_many_states(
+            self.num_qubits, gate_ids, wire1s, wire2s, thetas, 
+            input_states
+        )
+        
+        return output_states
+    
+    def run_single_block_batch(self, input_states, block_idx, 
+                               pre_quats=None, theta_zz=None, post_quats=None):
+        """
+        Run ONLY the specified block in isolation (not cascaded).
+        
+        This simulates: input → base_gates[block_idx] → PQC[block_idx] → output
+        
+        Unlike run_model_batch_up_to_block which simulates blocks 0→block_idx,
+        this only simulates the single specified block with its gates.
+        
+        Args:
+            input_states: Batch of input quantum states (B, 2^n)
+            block_idx: Which block to simulate (0-indexed)
+            pre_quats: Pre-layer quaternions (optional, uses stored if None)
+            theta_zz: ZZ angles (optional, uses stored if None)
+            post_quats: Post-layer quaternions (optional, uses stored if None)
+        
+        Returns:
+            output_states: Batch of output quantum states (B, 2^n)
+        """
+        
+        # Use provided params or default to stored
+        if pre_quats is None:
+            # No params provided, extract from stored parameters
+            block_pre_quat = self.pre_quaternions[block_idx:block_idx+1]
+            block_theta_zz = self.theta_zz[block_idx:block_idx+1]
+            block_post_quat = self.post_quaternions[block_idx:block_idx+1]
+        else:
+            # Params provided (already sliced for this block in training)
+            block_pre_quat = pre_quats
+            block_theta_zz = theta_zz
+            block_post_quat = post_quats
+        
+        # Convert quaternions to angles
+        pre_angles = self.convert_quaternions_to_angles(block_pre_quat)
+        post_angles = self.convert_quaternions_to_angles(block_post_quat)
+        
+        # Get cached template for this block
+        block_template = self.individual_block_templates[block_idx]
+        
+        # Calculate gate indices for this block
+        gate_start = self.gate_blocks * block_idx
+        gate_end = self.gate_blocks * (block_idx + 1)
+        
+        # Build parameter dictionary for single block
+        # Note: Arrays are JAX arrays, need to keep them as-is for differentiation
+        param_dict = {
+            'base': self.base_params[gate_start:gate_end],
+            'x_noise': self.x_noise[gate_start:gate_end],
+            'z_noise': self.z_noise[gate_start:gate_end],
+            'pre_params': pre_angles,  # Shape: (1, num_qubits, 3)
+            'theta_zz': block_theta_zz,  # Shape: (1, num_qubits)
+            'post_params': post_angles  # Shape: (1, num_qubits, 3)
+        }
+        
+        # Instantiate template with current parameters
+        circuit_ops = block_template.instantiate(param_dict)
+        
+        # Convert to JAX format
+        gate_ids, wire1s, wire2s, thetas = build_jax_circuit(circuit_ops)
+        
+        # Run batched simulation with JAX
+        output_states = jax_run_many_states(
+            self.num_qubits, gate_ids, wire1s, wire2s, thetas, 
+            input_states
+        )
+        
+        return output_states
+    
+    def get_pqc_params(self):
+        """Get PQC parameters as angles (for inspection/logging)."""
+        pre_angles = self.convert_quaternions_to_angles(self.pre_quaternions)
+        post_angles = self.convert_quaternions_to_angles(self.post_quaternions)
+        return {
+            'pre_angles': pre_angles,
+            'theta_zz': self.theta_zz,
+            'post_angles': post_angles
+        }
+    
+    def get_circuit_tokens(self):
+        """Get full circuit with current PQC parameters as tokens."""
+        pre_angles = self.convert_quaternions_to_angles(self.pre_quaternions)
+        post_angles = self.convert_quaternions_to_angles(self.post_quaternions)
+        
+        param_dict = {
+            'base': self.base_params,
+            'x_noise': self.x_noise,
+            'z_noise': self.z_noise,
+            'pre_params': np.array(pre_angles),
+            'theta_zz': np.array(self.theta_zz),
+            'post_params': np.array(post_angles)
+        }
+        
+        return self.template.instantiate(param_dict)
+    
+    def build_individual_block_template(self, block_idx):
+        """
+        Build a circuit template for ONLY the specified block (isolated).
+        
+        This creates a template containing only the gates for one specific block,
+        used for individual/isolated block training.
+        
+        Args:
+            block_idx: Which block to create template for (0-indexed)
+        
+        Returns:
+            CircuitTemplate for just this block's gates + one PQC layer
+        """
+        gate_start = self.gate_blocks * block_idx
+        gate_end = self.gate_blocks * (block_idx + 1)
+        block_base_ops = self.base_circuit_ops[gate_start:gate_end]
+        
+        return build_pqc_circuit_template(
+            base_ops=block_base_ops,
+            num_qubits=self.num_qubits,
+            num_gate_blocks=self.gate_blocks,
+            add_noise=True,
+            add_pqc_layers=True
+        )
+    
+    def build_partial_template(self, max_block_idx):
+        """
+        Build a circuit template up to and including max_block_idx.
+        
+        This creates a template for progressive training where we only need
+        to simulate part of the circuit.
+        
+        Args:
+            max_block_idx: Last PQC block to include (0-indexed)
+        
+        Returns:
+            CircuitTemplate including gates and PQC blocks 0 through max_block_idx
+        """
+        
+        # Calculate number of base gates to include
+        num_gates_to_include = self.gate_blocks * (max_block_idx + 1)
+        partial_base_ops = self.base_circuit_ops[:num_gates_to_include]
+        
+        # Build template for partial circuit
+        return build_pqc_circuit_template(
+            base_ops=partial_base_ops,
+            num_qubits=self.num_qubits,
+            num_gate_blocks=self.gate_blocks,
+            add_noise=True,
+            add_pqc_layers=True
+        )
+    
+    def run_model_batch_up_to_block(self, input_states, max_block_idx, 
+                                     pre_quats=None, theta_zz=None, post_quats=None):
+        """
+        Run model but only simulate up to and including max_block_idx.
+        
+        This method is used for progressive training where we train blocks
+        one at a time. It uses cached partial templates for efficiency.
+        
+        Args:
+            input_states: Batch of input quantum states (B, 2^n)
+            max_block_idx: Last block to simulate (0-indexed)
+            pre_quats: Pre-layer quaternions (optional, uses stored if None)
+            theta_zz: ZZ angles (optional, uses stored if None)
+            post_quats: Post-layer quaternions (optional, uses stored if None)
+        
+        Returns:
+            output_states: Batch of output quantum states (B, 2^n)
+        """
+
+        # Initialize cache if needed
+        # if not hasattr(self, '_partial_templates'):
+        #     self._partial_templates = {}
+        
+        # # Get or build cached template
+        # if max_block_idx not in self._partial_templates:
+        #     self._partial_templates[max_block_idx] = self.build_partial_template(max_block_idx)
+        
+        # template = self._partial_templates[max_block_idx]
+        template = self.partial_templates[max_block_idx]
+        
+        # Use provided params or default to stored
+        if pre_quats is None:
+            pre_quats = self.pre_quaternions
+        if theta_zz is None:
+            theta_zz = self.theta_zz
+        if post_quats is None:
+            post_quats = self.post_quaternions
+        
+        # Slice parameters to only include blocks 0 through max_block_idx
+        pre_quats_partial = pre_quats[:max_block_idx + 1]
+        theta_zz_partial = theta_zz[:max_block_idx + 1]
+        post_quats_partial = post_quats[:max_block_idx + 1]
+        
+        # Convert quaternions to angles (stays in JAX)
+        pre_angles = self.convert_quaternions_to_angles(pre_quats_partial)
+        post_angles = self.convert_quaternions_to_angles(post_quats_partial)
+        
+        # Build parameter dictionary for partial circuit
+        num_gates = self.gate_blocks * (max_block_idx + 1)
+        param_dict = {
+            'base': self.base_params[:num_gates],
+            'x_noise': self.x_noise[:num_gates],
+            'z_noise': self.z_noise[:num_gates],
+            'pre_params': pre_angles,
+            'theta_zz': theta_zz_partial,
+            'post_params': post_angles
+        }
+        
+        # Instantiate template with current parameters
+        circuit_ops = template.instantiate(param_dict)
+        
+        # Convert to JAX format (produces JAX arrays)
+        gate_ids, wire1s, wire2s, thetas = build_jax_circuit(circuit_ops)
+        
+        # Run batched simulation with JAX (fully differentiable!)
+        output_states = jax_run_many_states(
+            self.num_qubits, gate_ids, wire1s, wire2s, thetas, 
+            input_states
+        )
+        
+        return output_states
+    
+    
