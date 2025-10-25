@@ -243,7 +243,7 @@ def train_lelzz(
     # Load dataset
     ds_full = CircuitDataset(data_path, num_sample=num_sample)
     
-    # Filter to only circuits with n_qubits
+    # Filter to only circuits with the target n_qubits (no normalization)
     filtered_items = [item for item in ds_full.items if item['n_qubits'] == n_qubits]
     
     if len(filtered_items) == 0:
@@ -430,14 +430,14 @@ def train_lelzz(
                 batch = batch.to(device)
                 
                 if amp_enabled and amp_dtype and torch.cuda.is_available():
-                    with torch.cuda.amp.autocast(dtype=amp_dtype):
+                    with torch.amp.autocast('cuda', dtype=amp_dtype):
                         logits = model(batch, device)
                 else:
                     logits = model(batch, device)
                 
                 # Compute loss in FP32
                 if amp_enabled and torch.cuda.is_available():
-                    with torch.cuda.amp.autocast(enabled=False):
+                    with torch.amp.autocast('cuda', enabled=False):
                         loss = simulate_loss_lelzz_blocks(
                             batch, logits.float(), init_cache, ref_cache,
                             noise_schedules, gate_blocks, device, detach_base_noise
@@ -467,14 +467,14 @@ def train_lelzz(
             
             # Forward pass
             if amp_enabled and amp_dtype and torch.cuda.is_available():
-                with torch.cuda.amp.autocast(dtype=amp_dtype):
+                with torch.amp.autocast('cuda', dtype=amp_dtype):
                     logits = model(batch, device)
             else:
                 logits = model(batch, device)
             
             # Compute loss in FP32
             if amp_enabled and torch.cuda.is_available():
-                with torch.cuda.amp.autocast(enabled=False):
+                with torch.amp.autocast('cuda', enabled=False):
                     loss = simulate_loss_lelzz_blocks(
                         batch, logits.float(), init_cache, ref_cache,
                         noise_schedules, gate_blocks, device, detach_base_noise

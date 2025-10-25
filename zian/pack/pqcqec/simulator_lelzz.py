@@ -126,9 +126,10 @@ def simulate_loss_lelzz_blocks(
     # Initialize states
     states = init_cache[n].to(device).unsqueeze(0).expand(B, -1, -1).clone()
     
-    # Get reference states
+    # Get reference states (only the relevant dimensions for this n)
+    dim = 1 << n
     rows = torch.tensor([ref_cache['idx2row'][int(i.item())] for i in batch.idx], device=device)
-    ref = ref_cache['tensor'].index_select(0, rows)
+    ref = ref_cache['tensor'].index_select(0, rows)[:, :, :dim]  # Only take first 2^n dimensions
     
     # Compute blocks needed
     Lb = int(batch.base_len[0].item())
@@ -231,6 +232,10 @@ def simulate_loss_lelzz_blocks(
     if blk_idx < blocks_needed:
         angs_block = angles_blk[:, blk_idx]
         _apply_lelzz_pqc_block(states, angs_block, n, splits, cx_swap, device)
+    
+    # Normalize states before computing fidelity (numerical errors can cause norm drift)
+    states_norm = torch.sqrt((states.abs() ** 2).sum(-1, keepdim=True))  # [B, K, 1]
+    states = states / (states_norm + 1e-12)
     
     # Compute fidelity loss
     ov = (ref.conj() * states).sum(-1)  # [B, K]

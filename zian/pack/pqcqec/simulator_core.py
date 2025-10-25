@@ -692,11 +692,21 @@ torch::Tensor fused_base_noise_segment(torch::Tensor states, torch::Tensor scrat
                     arch_flags += ["-gencode", f"arch=compute_{cc},code=sm_{cc}"]
         # Add safe flags for Windows + recent MSVC/CUDA combos
         import shutil as _sh
+        import platform
+        is_windows = platform.system() == 'Windows'
         cl_path = _sh.which('cl')
-        extra_cuda = ["-Xcompiler", "/std:c++17", "-lineinfo", "-O2", "-allow-unsupported-compiler"] + arch_flags
-        if cl_path:
-            ccbin_dir = os.path.dirname(cl_path)
-            extra_cuda = ["-ccbin", ccbin_dir] + extra_cuda
+        
+        if is_windows:
+            extra_cuda = ["-Xcompiler", "/std:c++17", "-lineinfo", "-O2", "-allow-unsupported-compiler"] + arch_flags
+            if cl_path:
+                ccbin_dir = os.path.dirname(cl_path)
+                extra_cuda = ["-ccbin", ccbin_dir] + extra_cuda
+            extra_cflags = ["/std:c++17", "/O2", "/EHsc"]
+        else:
+            # Linux/Mac: use GCC/Clang style flags
+            extra_cuda = ["-lineinfo", "-O2", "-allow-unsupported-compiler"] + arch_flags
+            extra_cflags = ["-std=c++17", "-O2"]
+        
         cpp_decl = r"""
 #include <torch/extension.h>
 torch::Tensor fused_base_noise_segment(
@@ -713,7 +723,7 @@ torch::Tensor fused_base_noise_segment(
             verbose=True,
             with_cuda=True,
             build_directory=build_dir,
-            extra_cflags=["/std:c++17", "/O2", "/EHsc"],
+            extra_cflags=extra_cflags,
             extra_cuda_cflags=extra_cuda,
         )
         globals()["_bn_ext_reason"] = None
@@ -965,9 +975,14 @@ def build_base_cache_vectorized(dataset: CircuitDataset, k_random: int = K_RANDO
     for it in dataset.items:
         groups.setdefault(it['n_qubits'], []).append(it)
 
+    # Pre-allocate ref_states_packed with maximum dimension
+    # Use len(dataset.items) rows, with max_dim columns to accommodate all qubit counts
+    max_n = max(groups.keys()) if groups else 0
+    max_dim = 1 << max_n
     init_states_per_n: Dict[int, torch.Tensor] = {}
-    ref_states_packed = None
+    ref_states_list = []  # Will collect (sample_idx, states) pairs
     ref_idx2row: Dict[int, int] = {}
+    row_counter = 0
 
     for n, items in groups.items():
         dim = 1 << n
@@ -1079,12 +1094,20 @@ def build_base_cache_vectorized(dataset: CircuitDataset, k_random: int = K_RANDO
                             states_sel[:, :, m_idx] = -states_sel[:, :, m_idx]
                             states[sel] = states_sel
 
-        # Pack noiseless reference states
-        if ref_states_packed is None:
-            ref_states_packed = torch.empty(len(dataset.items), init_states_per_n[n].size(0), dim, dtype=DTYPE, device=device)
+        # Collect reference states with proper row mapping
         for bi, sample_idx in enumerate(sample_idx_list):
-            ref_states_packed[sample_idx].copy_(states[bi])
-            ref_idx2row[sample_idx] = sample_idx
+            ref_states_list.append((sample_idx, states[bi]))
+            ref_idx2row[sample_idx] = row_counter
+            row_counter += 1
+    
+    # Pack all reference states into a single tensor
+    if ref_states_list:
+        ref_states_packed = torch.zeros(len(ref_states_list), k_random, max_dim, dtype=DTYPE, device=device)
+        for row_idx, (sample_idx, state_tensor) in enumerate(ref_states_list):
+            dim = state_tensor.size(-1)  # Actual dimension for this circuit
+            ref_states_packed[row_idx, :, :dim].copy_(state_tensor)
+    else:
+        ref_states_packed = torch.empty(0, k_random, max_dim, dtype=DTYPE, device=device)
 
     # Build tensor-mode noise schedules across all items
     items_all = dataset.items
