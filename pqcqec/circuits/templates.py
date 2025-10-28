@@ -134,18 +134,19 @@ def build_pqc_circuit_template(base_ops: List[Tuple],
                 template.add_gate('rx', [q], param_source='pre_params', param_idx=(pqc_layer_idx, q, 1))
                 template.add_gate('rz', [q], param_source='pre_params', param_idx=(pqc_layer_idx, q, 2))
             
-            # ZZ entangling gates (ring topology)
-            for q in range(num_qubits):
-                j = (q + 1) % num_qubits
-                template.add_gate('cx', [q, j])
-                template.add_gate('rz', [j], param_source='theta_zz', param_idx=(pqc_layer_idx, q))
-                template.add_gate('cx', [q, j])
-            
-            # Post-local unitaries
-            for q in range(num_qubits):
-                template.add_gate('rz', [q], param_source='post_params', param_idx=(pqc_layer_idx, q, 0))
-                template.add_gate('rx', [q], param_source='post_params', param_idx=(pqc_layer_idx, q, 1))
-                template.add_gate('rz', [q], param_source='post_params', param_idx=(pqc_layer_idx, q, 2))
+            if num_qubits > 1:
+                # ZZ entangling gates (ring topology)
+                for q in range(num_qubits):
+                    j = (q + 1) % num_qubits
+                    template.add_gate('cx', [q, j])
+                    template.add_gate('rz', [j], param_source='theta_zz', param_idx=(pqc_layer_idx, q))
+                    template.add_gate('cx', [q, j])
+                
+                # Post-local unitaries
+                for q in range(num_qubits):
+                    template.add_gate('rz', [q], param_source='post_params', param_idx=(pqc_layer_idx, q, 0))
+                    template.add_gate('rx', [q], param_source='post_params', param_idx=(pqc_layer_idx, q, 1))
+                    template.add_gate('rz', [q], param_source='post_params', param_idx=(pqc_layer_idx, q, 2))
             
             pqc_layer_idx += 1
     

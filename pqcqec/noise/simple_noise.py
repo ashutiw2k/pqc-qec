@@ -8,8 +8,8 @@ from numpy.random import RandomState
 class PennylaneNoisyGates:
     def __init__(
         self,
-        x_rad: float = jnp.pi / 30,
-        z_rad: float = jnp.pi / 30,
+        x_rad: float = jnp.pi / 10,
+        z_rad: float = jnp.pi / 10,
         delta_x: float = 0,
         delta_z: float = 0,
         seed: int = 0
