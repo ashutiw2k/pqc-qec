@@ -11,6 +11,17 @@ PQC Architecture per block:
 Total: 7*Q angles per block for Q qubits
 
 This trains on full multi-qubit circuits (not subcircuits).
+
+ENHANCED MODEL FEATURES:
+The transformer now receives rich gate information per block instead of just gate counts:
+1. Gate type histograms (distribution of H, X, Z, CX, CZ gates)
+2. Qubit usage patterns (which qubits are active in each block)
+3. Entanglement connectivity (2-qubit gate interaction matrix)
+4. Traditional statistics (count, cumulative, block index)
+5. Previous block angles (autoregressive context)
+
+This gives the model actual structural information about the base circuit
+to better predict optimal PQC angles.
 """
 from typing import Optional
 import argparse
@@ -43,9 +54,14 @@ class ZZRingAnglePredictor(nn.Module):
     """Transformer model that predicts 7*n_qubits angles per PQC block.
     
     Architecture:
-    - Input: per-block gate statistics + previous block angles
+    - Input: per-block gate embeddings + statistics + previous block angles
     - Encoder: Causal transformer with positional embeddings
     - Output: 7*n_qubits angles via S¹ (circle) representation
+    
+    Enhanced with actual gate information:
+    - Gate type histograms (5 base gates: H, X, Z, CX, CZ)
+    - Qubit usage patterns per block
+    - Entanglement structure (2-qubit gate connectivity)
     """
     
     def __init__(self, gate_blocks: int, n_qubits: int):
@@ -57,8 +73,24 @@ class ZZRingAnglePredictor(nn.Module):
         import math
         self.max_blocks = math.ceil(MAX_BASE_LEN / max(1, gate_blocks))
         
-        # Input features: [gate_count, cumulative_count, block_index, prev_angles_flattened]
-        feat_dim = 3 + self.angles_per_block * PREV_K
+        # Gate embeddings (5 gate types: H, X, Z, CX, CZ)
+        self.n_gate_types = 5
+        self.gate_emb_dim = 32
+        self.gate_emb = nn.Embedding(self.n_gate_types, self.gate_emb_dim)
+        
+        # Input features per block:
+        # - Gate type histogram: 5 (one per gate type)
+        # - Qubit usage: n_qubits (binary usage per qubit)
+        # - Entanglement features: n_qubits * n_qubits (connectivity matrix flattened)
+        # - Gate count statistics: 3 (count, cumulative, block_index)
+        # - Previous angles: angles_per_block * PREV_K
+        gate_hist_dim = self.n_gate_types
+        qubit_usage_dim = n_qubits
+        connectivity_dim = n_qubits * n_qubits
+        stats_dim = 3
+        prev_angles_dim = self.angles_per_block * PREV_K
+        
+        feat_dim = gate_hist_dim + qubit_usage_dim + connectivity_dim + stats_dim + prev_angles_dim
         
         self.in_proj = nn.Sequential(
             nn.Linear(feat_dim, HID_DIM),
@@ -95,6 +127,87 @@ class ZZRingAnglePredictor(nn.Module):
                 b[:, 0] = 1.0  # x=1 -> angle=0
                 b[:, 1] = 0.0  # y=0
     
+    def _extract_block_features(self, batch: Batch, device: torch.device, max_blocks: int) -> torch.Tensor:
+        """Extract rich gate features per block from the batch.
+        
+        Args:
+            batch: Batch of circuits
+            device: torch device
+            max_blocks: Maximum number of blocks across batch
+            
+        Returns:
+            features: [B, max_blocks, feat_dim] tensor with per-block features
+        """
+        import math
+        B = batch.base_g.size(0)
+        
+        # Initialize feature tensors
+        gate_hist = torch.zeros(B, max_blocks, self.n_gate_types, device=device)
+        qubit_usage = torch.zeros(B, max_blocks, self.n_qubits, device=device)
+        connectivity = torch.zeros(B, max_blocks, self.n_qubits, self.n_qubits, device=device)
+        counts = torch.zeros(B, max_blocks, device=device)
+        
+        # Process each sample in batch
+        for i in range(B):
+            Lb = int(batch.base_len[i].item())
+            T = math.ceil(Lb / max(1, self.gate_blocks))
+            
+            # Extract gates and qubits for this sample
+            gates_i = batch.base_g[i, :Lb]  # [Lb]
+            q1_i = batch.base_q1[i, :Lb]    # [Lb]
+            q2_i = batch.base_q2[i, :Lb]    # [Lb]
+            
+            # Process each block
+            for t in range(T):
+                s = t * self.gate_blocks
+                e = min(Lb, (t + 1) * self.gate_blocks)
+                block_size = e - s
+                
+                if block_size == 0:
+                    continue
+                
+                # Extract block gates and qubits
+                block_gates = gates_i[s:e]
+                block_q1 = q1_i[s:e]
+                block_q2 = q2_i[s:e]
+                
+                # Count gate types (histogram)
+                for g_idx in range(self.n_gate_types):
+                    gate_hist[i, t, g_idx] = (block_gates == g_idx).sum().float()
+                
+                # Track qubit usage
+                for j in range(block_size):
+                    q1 = int(block_q1[j].item())
+                    q2 = int(block_q2[j].item())
+                    
+                    if 0 <= q1 < self.n_qubits:
+                        qubit_usage[i, t, q1] = 1.0
+                    
+                    # For 2-qubit gates, track connectivity
+                    if q2 >= 0 and q2 < self.n_qubits and 0 <= q1 < self.n_qubits:
+                        connectivity[i, t, q1, q2] += 1.0
+                        connectivity[i, t, q2, q1] += 1.0  # Symmetric
+                        qubit_usage[i, t, q2] = 1.0
+                
+                # Gate count
+                counts[i, t] = float(block_size)
+        
+        # Flatten connectivity matrix
+        connectivity_flat = connectivity.reshape(B, max_blocks, self.n_qubits * self.n_qubits)
+        
+        # Normalize features
+        gate_hist = gate_hist / (gate_hist.sum(dim=-1, keepdim=True) + 1e-8)  # Normalize to distribution
+        connectivity_flat = connectivity_flat / (connectivity_flat.sum(dim=-1, keepdim=True) + 1e-8)
+        
+        # Concatenate all structural features
+        structural_feats = torch.cat([
+            gate_hist,           # [B, max_blocks, n_gate_types]
+            qubit_usage,         # [B, max_blocks, n_qubits]
+            connectivity_flat,   # [B, max_blocks, n_qubits^2]
+        ], dim=-1)
+        
+        return structural_feats, counts
+    
     def _angles_from_s1(self, logits: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
         """Convert S¹ representation to angles [-π, π].
         
@@ -128,22 +241,16 @@ class ZZRingAnglePredictor(nn.Module):
         Returns:
             logits: [B, max_blocks*angles_per_block, 1] predicted angles
         """
+        import math
         B = batch.base_g.size(0)
         Lb_max = int(batch.base_len.max().item())
         
         # Compute number of blocks per sample
-        import math
         max_blocks = math.ceil(Lb_max / max(1, self.gate_blocks))
         
-        # Compute gate counts per block
-        counts = torch.zeros(B, max_blocks, device=device)
-        for i in range(B):
-            Lb = int(batch.base_len[i].item())
-            T = math.ceil(Lb / max(1, self.gate_blocks))
-            for t in range(T):
-                s = t * self.gate_blocks
-                e = min(Lb, (t + 1) * self.gate_blocks)
-                counts[i, t] = float(e - s)
+        # Extract rich gate features per block
+        structural_feats, counts = self._extract_block_features(batch, device, max_blocks)
+        # structural_feats: [B, max_blocks, n_gate_types + n_qubits + n_qubits^2]
         
         # Cumulative counts
         cum = counts.cumsum(dim=1)
@@ -170,6 +277,7 @@ class ZZRingAnglePredictor(nn.Module):
             
             # Build features for blocks [0, t]
             feats = torch.cat([
+                structural_feats[:, :L, :],       # Rich gate features (histogram, qubit usage, connectivity)
                 counts[:, :L].unsqueeze(-1),      # gate count
                 cum[:, :L].unsqueeze(-1),         # cumulative
                 idx_seq[:, :L].unsqueeze(-1),     # block index
