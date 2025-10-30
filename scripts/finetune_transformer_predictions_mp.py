@@ -350,6 +350,13 @@ def main():
         default='finetuned',
         help='Prefix for output files (default: finetuned)'
     )
+
+    # parser.add_argument(
+    #     '-x', '--max-circuits',
+    #     type=int,
+    #     default=1000,
+    #     help='Maximum Number of Circuits to Process (default: 1000)'
+    # )
     
     # Circuit parameters
     parser.add_argument(
@@ -411,7 +418,13 @@ def main():
         action='store_true',
         help='Print detailed progress for each circuit'
     )
-    
+
+    parser.add_argument(
+        '--restart',
+        action='store_true',
+        help='Restart finetuning from the last circuit'
+    )
+
     args = parser.parse_args()
     
     # Determine number of processes
@@ -447,18 +460,44 @@ def main():
         'verbose': args.verbose,
     }
     
-    # Prepare arguments for multiprocessing
-    process_args = [
-        (i, data, hyperparams)
-        for i, data in enumerate(all_circuit_data)
-    ]
-    
     # Create output directory and file
     os.makedirs(args.output_dir, exist_ok=True)
     output_file = os.path.join(
         args.output_dir,
         f"{args.output_prefix}_{args.num_qubits}q_{args.num_gates}g_results.jsonl"
     )
+    
+    # Check for restart - find last completed circuit
+    start_idx = 0
+    completed_indices = set()
+    if args.restart and os.path.exists(output_file):
+        print(f"\nRestart mode: Checking {output_file} for completed circuits...")
+        with open(output_file, 'r') as f:
+            for line in f:
+                try:
+                    result = json.loads(line)
+                    completed_indices.add(result['circuit_idx'])
+                except (json.JSONDecodeError, KeyError):
+                    continue
+        
+        if completed_indices:
+            start_idx = max(completed_indices) + 1
+            print(f"Found {len(completed_indices)} completed circuits (indices: 0-{max(completed_indices)})")
+            print(f"Restarting from circuit index {start_idx}")
+        else:
+            print("No completed circuits found, starting from beginning")
+    
+    # Prepare arguments for multiprocessing (skip already completed)
+    process_args = [
+        (i, data, hyperparams)
+        for i, data in enumerate(all_circuit_data)
+        if i not in completed_indices
+    ]
+    
+    if len(process_args) == 0:
+        print("\nAll circuits already completed!")
+        print("Remove --restart flag or delete output file to reprocess.")
+        return
     
     # Process circuits in parallel
     num_procs = min(args.num_processes, mp.cpu_count())
@@ -471,7 +510,9 @@ def main():
     results = []
     
     # Open file for writing results as they complete
-    with open(output_file, 'w') as f:
+    # Use append mode if restarting, otherwise overwrite
+    file_mode = 'a' if args.restart else 'w'
+    with open(output_file, file_mode) as f:
         if num_procs == 1:
             # Single process for easier debugging
             for i, arg in enumerate(process_args):
@@ -497,16 +538,25 @@ def main():
                 if not args.verbose:
                     print()  # New line after progress
     
-    print(f"\nCompleted processing {len(results)} circuits")
+    print(f"\nCompleted processing {len(results)} new circuits")
+    
+    # Load all results from file (including any previously completed ones)
+    all_results = []
+    with open(output_file, 'r') as f:
+        for line in f:
+            try:
+                all_results.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
     
     # Compute and display summary statistics
     print(f"\n{'='*60}")
-    print("SUMMARY STATISTICS")
+    print(f"SUMMARY STATISTICS (Total: {len(all_results)} circuits)")
     print(f"{'='*60}")
     
-    noisy_fids = [r['test_fidelity_noisy_mean'] for r in results]
-    transformer_fids = [r['test_fidelity_transformer_mean'] for r in results]
-    finetuned_fids = [r['test_fidelity_pqc_mean'] for r in results]
+    noisy_fids = [r['test_fidelity_noisy_mean'] for r in all_results]
+    transformer_fids = [r['test_fidelity_transformer_mean'] for r in all_results]
+    finetuned_fids = [r['test_fidelity_pqc_mean'] for r in all_results]
     improvements = [ft - tr for ft, tr in zip(finetuned_fids, transformer_fids)]
     
     print(f"Noisy Circuit Fidelity:       {np.mean(noisy_fids):.4f} ± {np.std(noisy_fids):.4f}")
@@ -524,7 +574,9 @@ def main():
     )
     
     summary = {
-        'num_circuits': len(results),
+        'num_circuits': len(all_results),
+        'num_circuits_new': len(results),
+        'num_circuits_existing': len(completed_indices),
         'hyperparameters': hyperparams,
         'noisy_fidelity_mean': float(np.mean(noisy_fids)),
         'noisy_fidelity_std': float(np.std(noisy_fids)),
