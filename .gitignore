@@ -206,7 +206,14 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# MacOS
+*.DS_Store*
+
 # Custom for this repository
 *checkpoints*
 *nogit*
 *idea*
+
+# Pytorch models
+*.pt*
+*.pth*

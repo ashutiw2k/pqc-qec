@@ -155,3 +155,33 @@ def quaternion_to_xzy_angles(q: jnp.ndarray, eps: float = 1e-8) -> jnp.ndarray:
     """Convert quaternion (w,x,y,z) directly to XZY Euler angles for Rx-Rz-Ry."""
     R = _rotmat_from_unit_quaternion(q)
     return xzy_from_rotmat(R, eps=eps)
+
+
+def zxz_to_quaternion_direct(alpha, beta, gamma):
+    """
+    Direct conversion from ZXZ Euler angles to quaternion.
+    
+    Uses closed-form quaternion multiplication for Rz(α)·Rx(β)·Rz(γ).
+    """
+    # Half angles
+    ha = alpha / 2.0
+    hb = beta / 2.0
+    hg = gamma / 2.0
+    
+    # Precompute trig values
+    ca = jnp.cos(ha)
+    sa = jnp.sin(ha)
+    cb = jnp.cos(hb)
+    sb = jnp.sin(hb)
+    cg = jnp.cos(hg)
+    sg = jnp.sin(hg)
+    
+    # Direct quaternion multiplication formula
+    # q = qz(α) ⊗ qx(β) ⊗ qz(γ)
+    w = cb * ca * cg - sb * sa * sg
+    x = sb * ca * cg + cb * sa * sg
+    y = sb * ca * sg - cb * sa * cg
+    z = cb * ca * sg + sb * sa * cg
+    
+    q = jnp.stack([w, x, y, z]).astype(jnp.float32)
+    return normalize_quaternion(q, enforce_w_nonneg=True)

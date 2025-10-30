@@ -53,7 +53,7 @@ def test_theta_zz_gradients():
     )
     
     # Get parameters
-    params = model.get_model_params()
+    params = model.get_model_params_to_store()
     
     print(f"\nInitial theta_zz: {params['theta_zz']}")
     print(f"Are all values the same? {jnp.all(params['theta_zz'] == params['theta_zz'][0])}")

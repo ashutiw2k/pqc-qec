@@ -157,43 +157,41 @@ def train_lel_zz_custom_statevec_with_uncomp(model, dataloader, optimizer, sched
     """
     
     @jax.jit
-    def update_step(pre_quats, theta_zz, post_quats, opt_state, ideal_data):
+    def update_step(params, opt_state, ideal_data):
         """Perform a single update step for the model parameters."""
         
-        def loss_fn(pre_q, theta, post_q):
+        def loss_fn(params_tuple):
+            # Unpack parameters from tuple
+            # pre, theta, post = params_tuple
+            
             # Run model with current PQC parameters
-            measured = model.run_model_batch(ideal_data, pre_q, theta, post_q)
+            measured = model.run_model_batch(ideal_data, *params_tuple)
             # With uncomputation, target is the input itself
-            return jax.vmap(main_loss_fn, in_axes=(0, 0))(ideal_data, measured)
+            per_state_loss = jax.vmap(main_loss_fn, in_axes=(0, 0))(ideal_data, measured)
+            return jnp.mean(per_state_loss)
         
-        # Compute loss and gradients w.r.t. all PQC parameters
-        loss, grads = jax.value_and_grad(loss_fn, argnums=(0, 1, 2))(
-            pre_quats, theta_zz, post_quats
-        )
-        
+        # Compute loss and gradients w.r.t. all PQC parameters (tuple of 3 arrays)
+        loss, grads = jax.value_and_grad(loss_fn)(params)
+
         # Sanitize gradients to avoid NaN/Inf explosions
         grads = jax.tree.map(lambda g: jnp.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), grads)
         
         # Update parameters
-        updates, opt_state = optimizer.update(grads, opt_state, (pre_quats, theta_zz, post_quats))
-        new_pre_quats, new_theta_zz, new_post_quats = optax.apply_updates(
-            (pre_quats, theta_zz, post_quats), updates
-        )
-        
+        updates, opt_state = optimizer.update(grads, opt_state, params)
+        new_params = optax.apply_updates(params, updates)
+
         # Keep params finite
-        new_pre_quats = jnp.nan_to_num(new_pre_quats, nan=0.0, posinf=0.0, neginf=0.0)
-        new_theta_zz = jnp.nan_to_num(new_theta_zz, nan=0.0, posinf=0.0, neginf=0.0)
-        new_post_quats = jnp.nan_to_num(new_post_quats, nan=0.0, posinf=0.0, neginf=0.0)
-        
-        # Compute fidelity with updated parameters
-        measured = model.run_model_batch(ideal_data, new_pre_quats, new_theta_zz, new_post_quats)
+        new_params = jax.tree.map(lambda p: jnp.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0), new_params)
+
+        # Compute fidelity with updated parameters (unpack tuple)
+        measured = model.run_model_batch(ideal_data, *new_params)
         fidelity = jax_pure_state_fidelity(ideal_data, measured)
-        
-        return opt_state, new_pre_quats, new_theta_zz, new_post_quats, loss, fidelity
+
+        return opt_state, new_params, loss, fidelity
     
     # Initialize optimizer state
     params = model.get_model_params()
-    opt_state = optimizer.init((params['pre_quaternions'], params['theta_zz'], params['post_quaternions']))
+    opt_state = optimizer.init(params)
     
     global_step = 0  # Track global step count across epochs for learning rate schedule
     
@@ -212,13 +210,13 @@ def train_lel_zz_custom_statevec_with_uncomp(model, dataloader, optimizer, sched
             params = model.get_model_params()
             
             # Update step
-            opt_state, new_pre_quats, new_theta_zz, new_post_quats, loss, fidelity = update_step(
-                params['pre_quaternions'], params['theta_zz'], params['post_quaternions'],
+            opt_state, new_params, loss, fidelity = update_step(
+                params,
                 opt_state, ideal_data
             )
             
             # Update model parameters
-            model.set_model_params(new_pre_quats, new_theta_zz, new_post_quats)
+            model.set_model_params(new_params)
             
             # Track metrics
             epoch_fidelities.append(float(fidelity))
@@ -236,6 +234,9 @@ def train_lel_zz_custom_statevec_with_uncomp(model, dataloader, optimizer, sched
         mean_fidelity = np.mean(epoch_fidelities)
         mean_loss = np.mean(epoch_losses)
         print(f"Epoch {e+1} summary - Mean Fidelity: {mean_fidelity:.4e}, Mean Loss: {mean_loss:.4e}")
+    
+    # Return final mean fidelity from last epoch
+    return mean_fidelity
 
 
 def train_lel_zz_custom_statevec_no_uncomp(model, dataloader, optimizer, schedule,
@@ -248,45 +249,42 @@ def train_lel_zz_custom_statevec_no_uncomp(model, dataloader, optimizer, schedul
     """
     
     @jax.jit
-    def update_step(pre_quats, theta_zz, post_quats, opt_state, input_data, target_data):
+    def update_step(params, opt_state, input_data, target_data):
         """Perform a single update step for the model parameters."""
-        
-        def loss_fn(pre_q, theta, post_q):
+
+        def loss_fn(params_tuple):
+            # Unpack parameters from tuple
+            # pre, theta, post = params_tuple
+            
             # Run model with current PQC parameters
-            measured = model.run_model_batch(input_data, pre_q, theta, post_q)
+            measured = model.run_model_batch(input_data, *params_tuple)
             # Target is the ideal noiseless output
             per_state_loss = jax.vmap(main_loss_fn, in_axes=(0, 0))(target_data, measured)
             return jnp.mean(per_state_loss)
         
-        # Compute loss and gradients w.r.t. all PQC parameters
-        loss, grads = jax.value_and_grad(loss_fn, argnums=(0, 1, 2))(
-            pre_quats, theta_zz, post_quats
-        )
-        
+        # Compute loss and gradients w.r.t. all PQC parameters (tuple of 3 arrays)
+        loss, grads = jax.value_and_grad(loss_fn)(params)
+
         # Sanitize gradients
         grads = jax.tree.map(lambda g: jnp.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), grads)
         
         # Update parameters
-        updates, opt_state = optimizer.update(grads, opt_state, (pre_quats, theta_zz, post_quats))
-        new_pre_quats, new_theta_zz, new_post_quats = optax.apply_updates(
-            (pre_quats, theta_zz, post_quats), updates
-        )
-        
+        updates, opt_state = optimizer.update(grads, opt_state, params)
+        new_params = optax.apply_updates(params, updates)
+
         # Keep params finite
-        new_pre_quats = jnp.nan_to_num(new_pre_quats, nan=0.0, posinf=0.0, neginf=0.0)
-        new_theta_zz = jnp.nan_to_num(new_theta_zz, nan=0.0, posinf=0.0, neginf=0.0)
-        new_post_quats = jnp.nan_to_num(new_post_quats, nan=0.0, posinf=0.0, neginf=0.0)
-        
-        # Compute fidelity with updated parameters
-        measured = model.run_model_batch(input_data, new_pre_quats, new_theta_zz, new_post_quats)
+        new_params = jax.tree.map(lambda p: jnp.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0), new_params)
+
+        # Compute fidelity with updated parameters (unpack tuple dynamically)
+        measured = model.run_model_batch(input_data, *new_params)
         fidelity = jax_pure_state_fidelity(target_data, measured)
-        
-        return opt_state, new_pre_quats, new_theta_zz, new_post_quats, loss, fidelity
+
+        return opt_state, new_params, loss, fidelity
     
     # Initialize optimizer state
     params = model.get_model_params()
-    opt_state = optimizer.init((params['pre_quaternions'], params['theta_zz'], params['post_quaternions']))
-    
+    opt_state = optimizer.init(params)
+
     global_step = 0  # Track global step count across epochs for learning rate schedule
     
     for e in range(epochs):
@@ -305,13 +303,13 @@ def train_lel_zz_custom_statevec_no_uncomp(model, dataloader, optimizer, schedul
             params = model.get_model_params()
             
             # Update step
-            opt_state, new_pre_quats, new_theta_zz, new_post_quats, loss, fidelity = update_step(
-                params['pre_quaternions'], params['theta_zz'], params['post_quaternions'],
+            opt_state, new_params, loss, fidelity = update_step(
+                params,
                 opt_state, input_data, target_data
             )
             
             # Update model parameters
-            model.set_model_params(new_pre_quats, new_theta_zz, new_post_quats)
+            model.set_model_params(new_params)
             
             # Track metrics
             epoch_fidelities.append(float(fidelity))
@@ -329,6 +327,9 @@ def train_lel_zz_custom_statevec_no_uncomp(model, dataloader, optimizer, schedul
         mean_fidelity = np.mean(epoch_fidelities)
         mean_loss = np.mean(epoch_losses)
         print(f"Epoch {e+1} summary - Mean Fidelity: {mean_fidelity:.4e}, Mean Loss: {mean_loss:.4e}")
+    
+    # Return final mean fidelity from last epoch
+    return mean_fidelity
 
 
 def train_lel_zz_single_block_progressive_no_uncomp(

@@ -90,11 +90,67 @@ class CircuitTemplate:
         return f"CircuitTemplate(num_gates={len(self)}, param_sources={set(self.param_sources)})"
 
 
+def add_rzrxrz_local_layer(template: CircuitTemplate, 
+                           pqc_layer_idx: int, 
+                           num_qubits: int,
+                           param_source: str = 'pre_params'):
+    """
+    Add Rz-Rx-Rz local unitaries on all qubits.
+    
+    Args:
+        template: CircuitTemplate to add gates to
+        pqc_layer_idx: Which PQC layer index (for parameter indexing)
+        num_qubits: Number of qubits in the circuit
+        param_source: Parameter source name ('pre_params' or 'post_params')
+    """
+    for q in range(num_qubits):
+        template.add_gate('rz', [q], param_source=param_source, param_idx=(pqc_layer_idx, q, 0))
+        template.add_gate('rx', [q], param_source=param_source, param_idx=(pqc_layer_idx, q, 1))
+        template.add_gate('rz', [q], param_source=param_source, param_idx=(pqc_layer_idx, q, 2))
+
+
+def add_rxrzry_local_layer(template: CircuitTemplate, 
+                           pqc_layer_idx: int, 
+                           num_qubits: int,
+                           param_source: str = 'pre_params'):
+    """
+    Add Rx-Rz-Ry local unitaries on all qubits.
+    
+    Args:
+        template: CircuitTemplate to add gates to
+        pqc_layer_idx: Which PQC layer index (for parameter indexing)
+        num_qubits: Number of qubits in the circuit
+        param_source: Parameter source name ('pre_params' or 'post_params')
+    """
+    for q in range(num_qubits):
+        template.add_gate('rx', [q], param_source=param_source, param_idx=(pqc_layer_idx, q, 0))
+        template.add_gate('rz', [q], param_source=param_source, param_idx=(pqc_layer_idx, q, 1))
+        template.add_gate('ry', [q], param_source=param_source, param_idx=(pqc_layer_idx, q, 2))
+
+
+def add_zz_ring_entangling_layer(template: CircuitTemplate, 
+                                  pqc_layer_idx: int, 
+                                  num_qubits: int):
+    """
+    Add ZZ entangling gates in ring topology (CNOT-Rz-CNOT).
+    
+    Args:
+        template: CircuitTemplate to add gates to
+        pqc_layer_idx: Which PQC layer index (for parameter indexing)
+        num_qubits: Number of qubits in the circuit
+    """
+    for q in range(num_qubits):
+        j = (q + 1) % num_qubits
+        template.add_gate('cx', [q, j])
+        template.add_gate('rz', [j], param_source='theta_zz', param_idx=(pqc_layer_idx, q))
+        template.add_gate('cx', [q, j])
+
+
 def build_pqc_circuit_template(base_ops: List[Tuple], 
                                num_qubits: int,
                                num_gate_blocks: int,
                                add_noise: bool = True,
-                               add_pqc_layers: bool = True) -> CircuitTemplate:
+                               pqc_type: str = "rzrxrz_zz_ring") -> CircuitTemplate:
     """
     Build a circuit template from base operations with optional noise and PQC layers.
     
@@ -103,12 +159,36 @@ def build_pqc_circuit_template(base_ops: List[Tuple],
         num_qubits: Number of qubits in the circuit
         num_gate_blocks: Number of gates per block before adding PQC layer
         add_noise: Whether to add noise gates after each base gate
-        add_pqc_layers: Whether to add PQC layers after each block
+        pqc_type: Type of PQC architecture to use. Options:
+            - "none": No PQC layers
+            - "rzrxrz": Just Rz-Rx-Rz local unitaries (no entanglement)
+            - "rzrxrz_zz_ring": Rz-Rx-Rz + ZZ entangling ring (default, LEL-ZZ)
+            - "rxrzry": Just Rx-Rz-Ry local unitaries (no entanglement)
+            - "rxrzry_zz_ring": Rx-Rz-Ry + ZZ entangling ring
     
     Returns:
         CircuitTemplate that can be instantiated with different parameters
     """
     template = CircuitTemplate()
+    
+    # Parse PQC type
+    pqc_type_lower = pqc_type.lower()
+    add_pqc = pqc_type_lower != "none"
+    
+    # Determine local gate type and entanglement
+    if "rzrxrz" in pqc_type_lower:
+        local_gate_fn = add_rzrxrz_local_layer
+    elif "rxrzry" in pqc_type_lower:
+        local_gate_fn = add_rxrzry_local_layer
+    elif pqc_type_lower == "none":
+        local_gate_fn = None
+    else:
+        raise ValueError(
+            f"Unknown PQC type: {pqc_type}. "
+            f"Supported types: 'none', 'rzrxrz', 'rzrxrz_zz_ring', 'rxrzry', 'rxrzry_zz_ring'"
+        )
+    
+    has_entanglement = "zz_ring" in pqc_type_lower
     
     pqc_layer_idx = 0  # Track which PQC layer we're on
     for i, op in enumerate(base_ops):
@@ -127,26 +207,16 @@ def build_pqc_circuit_template(base_ops: List[Tuple],
                 template.add_gate('rz', [q], param_source='z_noise', param_idx=i)
         
         # Add PQC layer after each block
-        if add_pqc_layers and (i + 1) % num_gate_blocks == 0:
+        if add_pqc and (i + 1) % num_gate_blocks == 0:
             # Pre-local unitaries
-            for q in range(num_qubits):
-                template.add_gate('rz', [q], param_source='pre_params', param_idx=(pqc_layer_idx, q, 0))
-                template.add_gate('rx', [q], param_source='pre_params', param_idx=(pqc_layer_idx, q, 1))
-                template.add_gate('rz', [q], param_source='pre_params', param_idx=(pqc_layer_idx, q, 2))
+            local_gate_fn(template, pqc_layer_idx, num_qubits, param_source='pre_params')
             
-            if num_qubits > 1:
-                # ZZ entangling gates (ring topology)
-                for q in range(num_qubits):
-                    j = (q + 1) % num_qubits
-                    template.add_gate('cx', [q, j])
-                    template.add_gate('rz', [j], param_source='theta_zz', param_idx=(pqc_layer_idx, q))
-                    template.add_gate('cx', [q, j])
+            # Entangling layer (only for multi-qubit circuits and if requested)
+            if num_qubits > 1 and has_entanglement:
+                add_zz_ring_entangling_layer(template, pqc_layer_idx, num_qubits)
                 
-                # Post-local unitaries
-                for q in range(num_qubits):
-                    template.add_gate('rz', [q], param_source='post_params', param_idx=(pqc_layer_idx, q, 0))
-                    template.add_gate('rx', [q], param_source='post_params', param_idx=(pqc_layer_idx, q, 1))
-                    template.add_gate('rz', [q], param_source='post_params', param_idx=(pqc_layer_idx, q, 2))
+                # Post-local unitaries (only added if we have entanglement)
+                local_gate_fn(template, pqc_layer_idx, num_qubits, param_source='post_params')
             
             pqc_layer_idx += 1
     

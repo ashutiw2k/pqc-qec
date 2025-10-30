@@ -61,7 +61,7 @@ def test_gradient_flow():
     print(f"✓ Initialized model")
     
     # Get initial parameters
-    params = model.get_model_params()
+    params = model.get_model_params_to_store()
     print(f"\nInitial parameters:")
     print(f"  Pre-quaternions shape: {params['pre_quaternions'].shape}")
     print(f"  Theta_zz shape: {params['theta_zz'].shape}")

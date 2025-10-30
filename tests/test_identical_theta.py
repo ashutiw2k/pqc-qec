@@ -52,7 +52,7 @@ def test_identical_theta_values():
     )
     
     # Get parameters
-    params = model.get_model_params()
+    params = model.get_model_params_to_store()
     
     # Create test input
     test_input = get_input_data(num_qubits, 2, seed=seed)

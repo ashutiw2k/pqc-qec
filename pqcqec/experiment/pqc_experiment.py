@@ -187,7 +187,7 @@ def pqc_experiment_custom_statevec_runner(
     This uses LELZZInterleavedQuaternionCustomStatevecModel for fast simulation
     with the custom Numba backend while maintaining JAX/Optax training.
     """
-    from ..models.pqc_models import LELZZInterleavedQuaternionCustomStatevecModel
+    from ..models.pqc_models import LELZZInterleavedQuaternionCustomStatevecModel, ZXZInterleavedQuaternionCustomStatevecModel
     
     # Set random seed for reproducibility
     jax_prng_keys = jax.random.split(jax.random.PRNGKey(seed), 3).flatten() # Split gives us (3,2) shape, flatten to (6,) 
@@ -236,7 +236,16 @@ def pqc_experiment_custom_statevec_runner(
     print(f"Circuit has {len(uncomp_circuit_ops)} operations")
 
     # Initialize model with custom statevector backend
-    model = LELZZInterleavedQuaternionCustomStatevecModel(
+    # model = LELZZInterleavedQuaternionCustomStatevecModel(
+    #     base_circuit_ops=uncomp_circuit_ops,
+    #     num_qubits=num_qubits,
+    #     x_noise=x_noise_arr,
+    #     z_noise=z_noise_arr,
+    #     pqc_blocks=pqc_blocks,
+    #     gate_blocks=gate_blocks,
+    #     seed=jax_prng_keys[4]
+    # )
+    model = ZXZInterleavedQuaternionCustomStatevecModel(
         base_circuit_ops=uncomp_circuit_ops,
         num_qubits=num_qubits,
         x_noise=x_noise_arr,
@@ -246,13 +255,13 @@ def pqc_experiment_custom_statevec_runner(
         seed=jax_prng_keys[4]
     )
     
-    params = model.get_model_params()
-    total_params = (params['pre_quaternions'].size + params['theta_zz'].size + 
-                   params['post_quaternions'].size)
+    
+    params = model.get_model_params_to_store()
+    total_params = sum([p.size for p in params.values()])
     print(f"Model initialized with {total_params} trainable parameters")
-    print(f"  Pre-quaternions: {params['pre_quaternions'].shape}")
-    print(f"  Theta_zz: {params['theta_zz'].shape}")
-    print(f"  Post-quaternions: {params['post_quaternions'].shape}")
+
+    for key in params:
+        print(f"  {key}: {params[key].shape}")
 
     # Create dataset and dataloader
 
@@ -472,7 +481,7 @@ def pqc_experiment_blocks_custom_statevec_runner(
         seed=jax_prng_keys[4]
     )
     
-    params = model.get_model_params()
+    params = model.get_model_params_to_store()
     total_params = (params['pre_quaternions'].size + params['theta_zz'].size + 
                    params['post_quaternions'].size)
     num_pqc_layers = model.num_pqc_layers
@@ -595,7 +604,7 @@ def pqc_experiment_blocks_custom_statevec_runner(
         print(f"✓ Block {block_idx+1} training complete!")
 
         # Log intermediate results
-        params = model.get_model_params()
+        params = model.get_model_params_to_store()
         pre_norm = jnp.linalg.norm(params['pre_quaternions'][block_idx])
         theta_norm = jnp.linalg.norm(params['theta_zz'][block_idx])
         post_norm = jnp.linalg.norm(params['post_quaternions'][block_idx])
