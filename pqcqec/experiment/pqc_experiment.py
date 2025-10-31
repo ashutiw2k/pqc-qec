@@ -187,7 +187,9 @@ def pqc_experiment_custom_statevec_runner(
     This uses LELZZInterleavedQuaternionCustomStatevecModel for fast simulation
     with the custom Numba backend while maintaining JAX/Optax training.
     """
-    from ..models.pqc_models import LELZZInterleavedQuaternionCustomStatevecModel, ZXZInterleavedQuaternionCustomStatevecModel
+    # from ..models.pqc_models import LELZZInterleavedQuaternionCustomStatevecModel, ZXZInterleavedQuaternionCustomStatevecModel
+    from ..models.pqc_model_base import PQCModelBase
+    from ..models.pqc_architectures import create_pqc_architecture
     
     # Set random seed for reproducibility
     jax_prng_keys = jax.random.split(jax.random.PRNGKey(seed), 3).flatten() # Split gives us (3,2) shape, flatten to (6,) 
@@ -245,18 +247,37 @@ def pqc_experiment_custom_statevec_runner(
     #     gate_blocks=gate_blocks,
     #     seed=jax_prng_keys[4]
     # )
-    model = ZXZInterleavedQuaternionCustomStatevecModel(
+    # model = ZXZInterleavedQuaternionCustomStatevecModel(
+    #     base_circuit_ops=uncomp_circuit_ops,
+    #     num_qubits=num_qubits,
+    #     x_noise=x_noise_arr,
+    #     z_noise=z_noise_arr,
+    #     pqc_blocks=pqc_blocks,
+    #     gate_blocks=gate_blocks,
+    #     seed=jax_prng_keys[4]
+    # )
+
+    pqc_arch = create_pqc_architecture(
+        arch_type='lelzz_quat',
+        num_qubits=num_qubits,
+        num_gates=num_gates,
+        gate_blocks=gate_blocks,
+        seed=jax_prng_keys[4],
+        pqc_type='zxz'
+    )
+
+    model = PQCModelBase(
         base_circuit_ops=uncomp_circuit_ops,
         num_qubits=num_qubits,
         x_noise=x_noise_arr,
         z_noise=z_noise_arr,
+        pqc_architecture=pqc_arch,
         pqc_blocks=pqc_blocks,
         gate_blocks=gate_blocks,
-        seed=jax_prng_keys[4]
+        pqc_type='zxz',
     )
-    
-    
-    params = model.get_model_params_to_store()
+
+    params = model.get_model_params_dict()
     total_params = sum([p.size for p in params.values()])
     print(f"Model initialized with {total_params} trainable parameters")
 

@@ -165,7 +165,7 @@ def train_lel_zz_custom_statevec_with_uncomp(model, dataloader, optimizer, sched
             # pre, theta, post = params_tuple
             
             # Run model with current PQC parameters
-            measured = model.run_model_batch(ideal_data, *params_tuple)
+            measured = model.run_model_batch(ideal_data, params_tuple)
             # With uncomputation, target is the input itself
             per_state_loss = jax.vmap(main_loss_fn, in_axes=(0, 0))(ideal_data, measured)
             return jnp.mean(per_state_loss)
@@ -184,7 +184,7 @@ def train_lel_zz_custom_statevec_with_uncomp(model, dataloader, optimizer, sched
         new_params = jax.tree.map(lambda p: jnp.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0), new_params)
 
         # Compute fidelity with updated parameters (unpack tuple)
-        measured = model.run_model_batch(ideal_data, *new_params)
+        measured = model.run_model_batch(ideal_data, new_params)
         fidelity = jax_pure_state_fidelity(ideal_data, measured)
 
         return opt_state, new_params, loss, fidelity
@@ -257,7 +257,7 @@ def train_lel_zz_custom_statevec_no_uncomp(model, dataloader, optimizer, schedul
             # pre, theta, post = params_tuple
             
             # Run model with current PQC parameters
-            measured = model.run_model_batch(input_data, *params_tuple)
+            measured = model.run_model_batch(input_data, params_tuple)
             # Target is the ideal noiseless output
             per_state_loss = jax.vmap(main_loss_fn, in_axes=(0, 0))(target_data, measured)
             return jnp.mean(per_state_loss)
@@ -276,7 +276,7 @@ def train_lel_zz_custom_statevec_no_uncomp(model, dataloader, optimizer, schedul
         new_params = jax.tree.map(lambda p: jnp.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0), new_params)
 
         # Compute fidelity with updated parameters (unpack tuple dynamically)
-        measured = model.run_model_batch(input_data, *new_params)
+        measured = model.run_model_batch(input_data, new_params)
         fidelity = jax_pure_state_fidelity(target_data, measured)
 
         return opt_state, new_params, loss, fidelity
