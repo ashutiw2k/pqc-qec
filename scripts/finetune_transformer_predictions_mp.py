@@ -300,6 +300,8 @@ def process_single_circuit(args_tuple):
     # Collect results
     results = {
         'circuit_idx': circuit_idx,
+        'base_circuit_ops': base_circuit,
+        'pqc_circuit_ops': pqc_circuit,
         'num_params': total_params,
         'final_train_fidelity': float(final_train_fidelity),
         'test_fidelity_noisy_mean': float(jnp.mean(fidelity_ideal_noisy)),
@@ -310,6 +312,10 @@ def process_single_circuit(args_tuple):
         'test_fidelity_transformer_std': float(jnp.std(fidelity_ideal_transformer)),
         'init_angles': init_pqc_angles,
         'final_angles': model.get_pqc_params()['pre_angles'].tolist(),
+        'final_angle_shape': model.get_pqc_params()['pre_angles'].shape,
+        'difference_init_final_angles': (
+            jnp.array(model.get_pqc_params()['pre_angles'].reshape(3,)) - jnp.array(init_pqc_angles)
+        ).tolist(),
         'x_noise_range': [float(x_noise_arr.min()), float(x_noise_arr.max())],
         'z_noise_range': [float(z_noise_arr.min()), float(z_noise_arr.max())],
     }
