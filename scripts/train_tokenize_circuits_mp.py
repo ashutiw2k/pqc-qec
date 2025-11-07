@@ -162,6 +162,9 @@ def process_seed(args):
     else:
         pqc_params_serializable = pqc_params
     
+    # print(base_circ)
+    # print(pqc_circ)
+
     token_data = {
         'seed': seed,
         'fidelity': mean_fidelity_ideal_pqc,

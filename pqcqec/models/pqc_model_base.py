@@ -111,13 +111,21 @@ class PQCModelBase:
 
     def get_pqc_params(self) -> jnp.ndarray:
         """Get all PQC parameters as a single array."""
-        param_tuples = self.pqc_arch.params_dict_to_tuple(self.params)
+        pqc_params = {}
+        for key, value in self.params.items():
+            if 'quaternion' in key:
+                # Convert quaternions to angles
+                angle_key = key.replace('quaternion', 'angle')
+                pqc_params[angle_key] = self.convert_quaternions_to_angles(value).tolist()
+            else:
+                # theta_zz or other direct params
+                pqc_params[key] = value.tolist()
 
-        return jnp.concatenate([layer.params for layer in self.pqc_layers])
+        return pqc_params
 
     def get_model_params(self) -> Tuple:
         """Get all trainable model parameters as tuple in canonical order."""
-        return self._prepare_param_dict_for_template(self.params)
+        return self.pqc_arch.params_dict_to_tuple(self.params)
     
     def get_model_params_dict(self) -> Dict[str, jnp.ndarray]:
         """Get all trainable model parameters as dict."""
@@ -363,9 +371,22 @@ class PQCModelBase:
         return output_states
     
     def get_circuit_tokens(self) -> List:
-        """Get full circuit with current PQC parameters as tokens."""
+        """Get full circuit with current PQC parameters and Error Model as tokens."""
         param_dict = self._prepare_param_dict_for_template()
-        return self.template.instantiate(param_dict)
+        pqc_ops = self.template.instantiate(param_dict)
+        
+        # Convert operations to serializable tokens
+        tokens = []
+        for gate, qubits, params in pqc_ops:
+            # Convert JAX arrays to native Python floats for serialization
+            if params and isinstance(params[0], jnp.ndarray):
+                serialized_params = [np.float32(params[0].item())]
+            else:
+                serialized_params = params
+            
+            tokens.append((gate, qubits, serialized_params))
+        
+        return tokens
     
     def _build_individual_block_template(self, block_idx: int):
         """Build template for a single isolated block."""
