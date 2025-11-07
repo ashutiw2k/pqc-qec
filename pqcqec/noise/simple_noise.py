@@ -1,7 +1,5 @@
-import jax
 import jax.numpy as jnp
 import pennylane as qml
-import numpy as np
 from numpy.random import RandomState
 
 
