@@ -174,7 +174,9 @@ def process_single_circuit(args_tuple):
         pqc_type='zxz'
     )
 
-    model = PQCModelBase(
+    if verbose:
+        print("PQC Architecture created.")
+        model = PQCModelBase(
         base_circuit_ops=base_circuit,
         num_qubits=num_qubits,
         x_noise=x_noise_arr,
@@ -188,14 +190,31 @@ def process_single_circuit(args_tuple):
         gate_sequence_noise_prob=gate_sequence_noise_prob,
         noise_seed=circuit_idx
     )
+    else:
+        with suppress_stdout():
+            model = PQCModelBase(
+                base_circuit_ops=base_circuit,
+                num_qubits=num_qubits,
+                x_noise=x_noise_arr,
+                z_noise=z_noise_arr,
+                pqc_architecture=pqc_arch,
+                pqc_blocks=1,
+                gate_blocks=gate_blocks,
+                pqc_type='zxz',
+                noise_type=noise_type,
+                gate_sequence_noise_rules=gate_sequence_noise_rules,
+                gate_sequence_noise_prob=gate_sequence_noise_prob,
+                noise_seed=circuit_idx
+            )
     
     # Set initial PQC angles from transformer prediction
     if improve_init_angles:
         init_angles = jnp.array(init_pqc_angles, dtype=jnp.float32).reshape(1, 1, 3)
         model.set_model_params(new_params={'pre_angles': init_angles})
     
-    params = model.get_pqc_params()
-    total_params = sum([len(p) for p in params.values()])
+
+    params = model.get_model_params_dict()
+    total_params = sum([p.size for p in params.values()])
     
     if verbose:
         print(f"Model initialized with {total_params} trainable parameters")
@@ -349,10 +368,10 @@ def process_single_circuit(args_tuple):
         'test_fidelity_transformer_mean': float(jnp.mean(fidelity_ideal_transformer)),
         'test_fidelity_transformer_std': float(jnp.std(fidelity_ideal_transformer)),
         'init_angles': init_pqc_angles,
-        'final_angles': model.get_pqc_params()['pre_angles'].tolist(),
-        'final_angle_shape': model.get_pqc_params()['pre_angles'].shape,
+        'final_angles': model.get_pqc_params()['pre_angles'],
+        'final_angle_shape': np.array(model.get_pqc_params()['pre_angles']).shape,
         'difference_init_final_angles': (
-            jnp.array(model.get_pqc_params()['pre_angles'].reshape(3,)) - jnp.array(init_pqc_angles)
+            jnp.array(model.get_pqc_params()['pre_angles']).reshape(3,) - jnp.array(init_pqc_angles)
         ).tolist(),
         'x_noise_range': [float(x_noise_arr.min()), float(x_noise_arr.max())],
         'z_noise_range': [float(z_noise_arr.min()), float(z_noise_arr.max())],
