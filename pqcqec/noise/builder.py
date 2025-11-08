@@ -2,9 +2,11 @@ import numpy as np
 from typing import List, Tuple, Dict, Optional
 
 
-def add_noise_to_base_ops(base_ops, x_noise:np.ndarray, z_noise:np.ndarray):
+def add_rotation_noise_to_base_ops(base_ops, noise: Dict[str, np.ndarray]) -> List[Tuple]:
     """Add noise operations to a list of base operations according to a noise model."""
     noisy_ops = []
+    x_noise = noise.get('x_noise', np.zeros(len(base_ops)))
+    z_noise = noise.get('z_noise', np.zeros(len(base_ops)))
     for i, op in enumerate(base_ops):
         noisy_ops.append(op)
         gate, qubits, params = op
@@ -19,7 +21,7 @@ def add_noise_to_base_ops(base_ops, x_noise:np.ndarray, z_noise:np.ndarray):
 
 def apply_gate_sequence_noise(
     base_ops: List[Tuple],
-    transformation_rules: Optional[Dict[Tuple[str, str], Tuple[str, str]]] = None,
+    noise: Optional[Dict[Tuple[str, str], Tuple[str, str]]] = None,
     seed: Optional[int] = None
 ) -> List[Tuple]:
     """
@@ -43,9 +45,9 @@ def apply_gate_sequence_noise(
         >>> # Result: [('h', [0], []), ('x', [0], []), ('x', [1], [])]
         >>> # The HH pair on qubit 0 was transformed to HX
     """
-    if transformation_rules is None:
+    if noise is None:
         # Default transformation rules
-        transformation_rules = {
+        noise = {
             ('h', 'h'): ('h', 'x'),   # HH → HX
             ('x', 'x'): ('x', 'z'),   # XX → XZ
             ('z', 'z'): ('z', 'h'),   # ZZ → ZH
@@ -58,7 +60,7 @@ def apply_gate_sequence_noise(
     # Normalize gate names to lowercase for matching
     normalized_rules = {
         (g1.lower(), g2.lower()): (r1.lower(), r2.lower())
-        for (g1, g2), (r1, r2) in transformation_rules.items()
+        for (g1, g2), (r1, r2) in noise.items()
     }
     
     # Track the last gate applied to each qubit

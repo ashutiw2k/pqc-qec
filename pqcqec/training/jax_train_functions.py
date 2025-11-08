@@ -2,10 +2,10 @@ import jax
 import jax.numpy as jnp
 import optax
 import numpy as np
-import pennylane as qml
-import random
+# import pennylane as qml
+# import random
 from tqdm import tqdm
-from typing import Callable 
+# from typing import Callable 
 
 from .jax_loss_functions import jax_mse_complex_loss_aligned, jax_pure_state_fidelity, jax_fidelity_loss, jax_hilbert_schmidt_density_loss
 from ..simulate.simulate import run_ideal_circuit, run_circuit_with_noise_model
@@ -13,7 +13,7 @@ from ..simulate.jax_statevector import jax_run_many_states, build_jax_circuit
 from ..circuits.pqc_circuits import list_LEL_ZZ
 
 from ..noise.simple_noise import PennylaneNoisyGates
-from ..noise.builder import add_noise_to_base_ops
+from ..noise.builder import add_rotation_noise_to_base_ops
 
 def train_pqc_model_with_uncomp(model, dataloader, optimizer, schedule, main_loss_fn=jax_fidelity_loss, epochs=1):
 
@@ -501,11 +501,12 @@ def train_lel_zz_single_block_progressive_no_uncomp(
     pqc_params = model.get_pqc_params()
 
     circuit_block_gates = model.base_circuit_ops[blk_start_idx:blk_end_idx]
-    circuit_block_gates_noisy = add_noise_to_base_ops(
+    circuit_block_gates_noisy = add_rotation_noise_to_base_ops(
         circuit_block_gates, 
-        model.x_noise[blk_start_idx:blk_end_idx], 
-        model.z_noise[blk_start_idx:blk_end_idx]
+        {'x_noise': model.x_noise[blk_start_idx:blk_end_idx], 
+         'z_noise': model.z_noise[blk_start_idx:blk_end_idx]}
         )
+
     
     circuit_block_gates_pqc = circuit_block_gates_noisy + list_LEL_ZZ(
         model.num_qubits,

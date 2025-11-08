@@ -258,7 +258,7 @@ def pqc_experiment_custom_statevec_runner(
     # )
 
     pqc_arch = create_pqc_architecture(
-        arch_type='lelzz_quat',
+        arch_type='local_quat',
         num_qubits=num_qubits,
         num_gates=num_gates,
         gate_blocks=gate_blocks,
@@ -275,6 +275,12 @@ def pqc_experiment_custom_statevec_runner(
         pqc_blocks=pqc_blocks,
         gate_blocks=gate_blocks,
         pqc_type='zxz',
+        noise_type='gate_sequence',  # Use gate sequence noise only,
+        gate_sequence_noise_rules={
+            ('h', 'h'): ('h', 'x'),  # HH → HX
+            ('x', 'x'): ('x', 'z'),  # XX → XZ
+            ('z', 'z'): ('z', 'x'),  # ZZ → ZX
+        }
     )
 
     params = model.get_model_params_dict()
@@ -353,13 +359,13 @@ def pqc_experiment_custom_statevec_runner(
                                                optimizer, schedule, epochs=epochs)
 
     # Test the model
-    print(f"\nGenerating test data...")
+    print("\nGenerating test data...")
     ideal_test_input_data = get_input_data(num_qubits, num_test, seed=jax_prng_keys[5])
 
     print(f'Ideal Test Data Shape: {ideal_test_input_data.shape}')
     
     # Generate noisy outputs using custom backend for comparison
-    print(f'Running circuit with noise using custom backend on test data...')
+    print('Running circuit with noise using custom backend on test data...')
     test_circuit_with_noise_ops = uncomp_circuit_ops.copy()
     # Add noise gates to circuit
     noisy_test_ops = []
@@ -375,13 +381,13 @@ def pqc_experiment_custom_statevec_runner(
 
     # Determine ideal output state
     if not add_uncomputation:
-        print(f'Generating ideal (noiseless) output states...')
+        print('Generating ideal (noiseless) output states...')
         base_test_jax_ops = build_jax_circuit(uncomp_circuit_ops)
         ideal_out_state = jax_run_many_states(num_qubits, *base_test_jax_ops, ideal_test_input_data)
     else:
         ideal_out_state = ideal_test_input_data
 
-    print(f'Running PQC model on test data...')
+    print('Running PQC model on test data...')
     pqc_state = model.run_model_batch(ideal_test_input_data)
     
     # Compute fidelities
@@ -389,7 +395,7 @@ def pqc_experiment_custom_statevec_runner(
     fidelity_ideal_noisy = batched_fidelity(ideal_out_state, noisy_state)
     fidelity_ideal_pqc = batched_fidelity(ideal_out_state, pqc_state)
 
-    print(f"\n=== Test Results ===")
+    print("\n=== Test Results ===")
     print(f"Fidelity (Ideal, Noisy): {jnp.mean(fidelity_ideal_noisy):.4e} ± {jnp.std(fidelity_ideal_noisy):.4e}")
     print(f"Fidelity (Ideal, PQC): {jnp.mean(fidelity_ideal_pqc):.4e} ± {jnp.std(fidelity_ideal_pqc):.4e}")
     

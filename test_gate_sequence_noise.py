@@ -147,7 +147,7 @@ def test_custom_rules():
     
     print("\nApplying custom transformation rules...")
     print("  Rules: XX→XI, ZZ→ZY, HH→HS")
-    noisy_circuit = apply_gate_sequence_noise(circuit_ops, transformation_rules=custom_rules)
+    noisy_circuit = apply_gate_sequence_noise(circuit_ops, noise=custom_rules)
     
     print("\nNoisy circuit:")
     for i, (gate, qubits, params) in enumerate(noisy_circuit):

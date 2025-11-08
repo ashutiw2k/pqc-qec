@@ -13,7 +13,7 @@ import multiprocessing as mp
 import os
 import sys
 from pathlib import Path
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple
 from contextlib import contextmanager
 
 import numpy as np
@@ -24,6 +24,16 @@ import optax
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+
+from pqcqec.models.pqc_architectures import create_pqc_architecture
+from pqcqec.models.pqc_model_base import PQCModelBase
+from pqcqec.noise.simple_noise import PennylaneNoisyGates
+# from pqcqec.models.pqc_models import ZXZInterleavedAngleCustomStatevecModel
+from pqcqec.training.jax_train_functions import train_lel_zz_custom_statevec_no_uncomp
+from pqcqec.training.jax_loss_functions import jax_pure_state_fidelity
+from pqcqec.simulate.simulate import get_input_data
+from pqcqec.simulate.jax_statevector import build_jax_circuit, jax_run_many_states
+from pqcqec.utils.jax_utils import JAXStateMeasuredDataset, JAXDataLoader
 
 @contextmanager
 def suppress_stdout():
@@ -39,13 +49,6 @@ def suppress_stdout():
             sys.stdout = old_stdout
             sys.stderr = old_stderr
 
-from pqcqec.noise.simple_noise import PennylaneNoisyGates
-from pqcqec.models.pqc_models import ZXZInterleavedAngleCustomStatevecModel
-from pqcqec.training.jax_train_functions import train_lel_zz_custom_statevec_no_uncomp
-from pqcqec.training.jax_loss_functions import jax_pure_state_fidelity
-from pqcqec.simulate.simulate import get_input_data
-from pqcqec.simulate.jax_statevector import build_jax_circuit, jax_run_many_states
-from pqcqec.utils.jax_utils import JAXStateMeasuredDataset, JAXDataLoader
 
 
 def load_transformer_predictions(filepath: str) -> List[Tuple[list, list, list]]:
@@ -104,6 +107,7 @@ def process_single_circuit(args_tuple):
     batch_size = hyperparams['batch_size']
     epochs = hyperparams['epochs']
     verbose = hyperparams.get('verbose', False)
+    improve_init_angles = hyperparams.get('improve_init_angles', False)
     
     if verbose:
         print(f"\n{'='*60}")
@@ -121,6 +125,11 @@ def process_single_circuit(args_tuple):
     
     # Create noise model
     noise_model = PennylaneNoisyGates(seed=int(jax_prng_keys[1]))
+    
+    # Extract noise configuration from hyperparams
+    noise_type = hyperparams.get('noise_type', 'rotation')
+    gate_sequence_noise_rules = hyperparams.get('gate_sequence_noise_rules', None)
+    gate_sequence_noise_prob = hyperparams.get('gate_sequence_noise_prob', 1.0)
     
     # Generate noise arrays
     np.random.seed(circuit_idx)
@@ -141,23 +150,52 @@ def process_single_circuit(args_tuple):
         print(f"Circuit has {len(base_circuit)} operations")
     
     # Initialize model with angle-based PQC
-    model = ZXZInterleavedAngleCustomStatevecModel(
+    # model = ZXZInterleavedAngleCustomStatevecModel(
+    #     base_circuit_ops=base_circuit,
+    #     num_qubits=num_qubits,
+    #     x_noise=x_noise_arr,
+    #     z_noise=z_noise_arr,
+    #     pqc_blocks=1,
+    #     gate_blocks=gate_blocks,
+    #     seed=int(jax_prng_keys[4]),
+    #     pqc_type='zxz',
+    #     noise_type=noise_type,
+    #     gate_sequence_noise_rules=gate_sequence_noise_rules,
+    #     gate_sequence_noise_prob=gate_sequence_noise_prob,
+    #     noise_seed=circuit_idx
+    # )
+
+    pqc_arch = create_pqc_architecture(
+        arch_type='local_quat',
+        num_qubits=num_qubits,
+        num_gates=num_gates,
+        gate_blocks=gate_blocks,
+        seed=jax_prng_keys[4],
+        pqc_type='zxz'
+    )
+
+    model = PQCModelBase(
         base_circuit_ops=base_circuit,
         num_qubits=num_qubits,
         x_noise=x_noise_arr,
         z_noise=z_noise_arr,
+        pqc_architecture=pqc_arch,
         pqc_blocks=1,
         gate_blocks=gate_blocks,
-        seed=int(jax_prng_keys[4]),
-        pqc_type='zxz'
+        pqc_type='zxz',
+        noise_type=noise_type,
+        gate_sequence_noise_rules=gate_sequence_noise_rules,
+        gate_sequence_noise_prob=gate_sequence_noise_prob,
+        noise_seed=circuit_idx
     )
     
     # Set initial PQC angles from transformer prediction
-    init_angles = jnp.array(init_pqc_angles, dtype=jnp.float32).reshape(1, 1, 3)
-    model.set_model_params(new_params={'pre_angles': init_angles})
+    if improve_init_angles:
+        init_angles = jnp.array(init_pqc_angles, dtype=jnp.float32).reshape(1, 1, 3)
+        model.set_model_params(new_params={'pre_angles': init_angles})
     
-    params = model.get_model_params_to_store()
-    total_params = sum([p.size for p in params.values()])
+    params = model.get_pqc_params()
+    total_params = sum([len(p) for p in params.values()])
     
     if verbose:
         print(f"Model initialized with {total_params} trainable parameters")
@@ -241,13 +279,13 @@ def process_single_circuit(args_tuple):
     
     # Test the model
     if verbose:
-        print(f"\nGenerating test data...")
+        print("\nGenerating test data...")
     
     ideal_test_input_data = get_input_data(num_qubits, num_test, seed=int(jax_prng_keys[5]))
     
     # Generate noisy outputs
     if verbose:
-        print(f'Running circuit with noise on test data...')
+        print('Running circuit with noise on test data...')
     
     noisy_test_ops = []
     for i, op in enumerate(base_circuit):
@@ -262,14 +300,14 @@ def process_single_circuit(args_tuple):
     
     # Generate ideal (noiseless) output states
     if verbose:
-        print(f'Generating ideal (noiseless) output states...')
+        print('Generating ideal (noiseless) output states...')
     
     base_test_jax_ops = build_jax_circuit(base_circuit)
     ideal_out_state = jax_run_many_states(num_qubits, *base_test_jax_ops, ideal_test_input_data)
     
     # Run PQC model on test data
     if verbose:
-        print(f'Running fine-tuned PQC model on test data...')
+        print('Running fine-tuned PQC model on test data...')
     
     pqc_state = model.run_model_batch(ideal_test_input_data)
     
@@ -280,7 +318,7 @@ def process_single_circuit(args_tuple):
     
     # Evaluate transformer prediction (before fine-tuning)
     if verbose:
-        print(f'Evaluating transformer prediction (before fine-tuning)...')
+        print('Evaluating transformer prediction (before fine-tuning)...')
     
     noisy_transformer_ops = []
     for i, op in enumerate(pqc_circuit):
@@ -318,6 +356,8 @@ def process_single_circuit(args_tuple):
         ).tolist(),
         'x_noise_range': [float(x_noise_arr.min()), float(x_noise_arr.max())],
         'z_noise_range': [float(z_noise_arr.min()), float(z_noise_arr.max())],
+        'noise_type': noise_type,
+        'gate_sequence_noise_prob': gate_sequence_noise_prob if noise_type in ['gate_sequence', 'both'] else None,
     }
     
     if verbose:
@@ -418,6 +458,27 @@ def main():
         help='Number of parallel processes (default: half of CPU cores)'
     )
     
+    # Noise model parameters
+    parser.add_argument(
+        '--noise-type',
+        type=str,
+        default='rotation',
+        choices=['rotation', 'gate_sequence', 'both'],
+        help='Type of noise model: rotation (RxRz gates), gate_sequence (HH→HX etc), or both (default: rotation)'
+    )
+    parser.add_argument(
+        '--gate-noise-prob',
+        type=float,
+        default=1.0,
+        help='Probability for gate sequence noise transformations [0-1] (default: 1.0)'
+    )
+    parser.add_argument(
+        '--gate-noise-rules',
+        type=str,
+        default=None,
+        help='Custom gate sequence noise rules as JSON string, e.g. \'{"HH": "HX", "XX": "XZ"}\' (default: None)'
+    )
+    
     # Other options
     parser.add_argument(
         '-v', '--verbose',
@@ -431,7 +492,29 @@ def main():
         help='Restart finetuning from the last circuit'
     )
 
+    parser.add_argument(
+        '--improve-init-angles',
+        action='store_true',
+        help='Fine-tune starting from transformer-predicted angles (default: False)'
+    )
+
     args = parser.parse_args()
+    
+    # Parse custom gate noise rules if provided
+    gate_sequence_noise_rules = None
+    if args.gate_noise_rules:
+        try:
+            import json as json_module
+            rules_dict = json_module.loads(args.gate_noise_rules)
+            # Convert string keys like "HH" to tuple keys like ('h', 'h')
+            gate_sequence_noise_rules = {
+                (k[0].lower(), k[1].lower()): (v[0].lower(), v[1].lower())
+                for k, v in rules_dict.items()
+            }
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Error parsing --gate-noise-rules: {e}")
+            print("Expected format: '{\"HH\": \"HX\", \"XX\": \"XZ\"}'")
+            sys.exit(1)
     
     # Determine number of processes
     if args.num_processes is None:
@@ -445,6 +528,13 @@ def main():
     print(f"Circuit: {args.num_qubits}q, {args.num_gates}g, {args.gate_blocks} blocks")
     print(f"Training: {args.num_data} samples, {args.batch_size} batch, {args.epochs} epochs")
     print(f"Test: {args.num_test} samples")
+    print(f"Noise model: {args.noise_type}")
+    if args.noise_type in ['gate_sequence', 'both']:
+        print(f"  Gate sequence noise probability: {args.gate_noise_prob}")
+        if gate_sequence_noise_rules:
+            print("  Custom rules: {gate_sequence_noise_rules}")
+        else:
+            print("  Default rules: HH→HX, XX→XZ, ZZ→ZH")
     print(f"Multiprocessing: {args.num_processes} processes")
     print(f"{'='*60}\n")
     
@@ -464,6 +554,9 @@ def main():
         'batch_size': args.batch_size,
         'epochs': args.epochs,
         'verbose': args.verbose,
+        'noise_type': args.noise_type,
+        'gate_sequence_noise_rules': gate_sequence_noise_rules,
+        'gate_sequence_noise_prob': args.gate_noise_prob,
     }
     
     # Create output directory and file

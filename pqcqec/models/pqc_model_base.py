@@ -14,6 +14,7 @@ from typing import List, Dict, Tuple, Optional, Union
 from ..circuits.templates import build_pqc_circuit_template
 from ..simulate.jax_statevector import build_jax_circuit, jax_run_many_states
 from ..utils.quaternions_utils import quaternion_to_zxz_angles, quaternion_to_xzy_angles
+from ..noise.builder import apply_gate_sequence_noise, apply_gate_sequence_noise_probabilistic
 from .pqc_architectures import PQCArchitectureBase
 
 
@@ -38,7 +39,11 @@ class PQCModelBase:
                  pqc_architecture: PQCArchitectureBase,
                  pqc_blocks: int = 1,
                  gate_blocks: int = 1,
-                 pqc_type: str = 'zxz'):
+                 pqc_type: str = 'zxz',
+                 noise_type: str = 'rotation',
+                 gate_sequence_noise_rules: Optional[Dict] = None,
+                 gate_sequence_noise_prob: float = 1.0,
+                 noise_seed: Optional[int] = None):
         """
         Initialize the PQC model.
         
@@ -51,6 +56,14 @@ class PQCModelBase:
             pqc_blocks: Number of PQC blocks
             gate_blocks: Number of gates per block before adding PQC
             pqc_type: Type of PQC decomposition ('zxz' or 'xzy')
+            noise_type: Type of noise model ('rotation', 'gate_sequence', or 'both')
+                - 'rotation': Traditional RxRz noise (default)
+                - 'gate_sequence': Coherent gate sequence transformations (HH→HX, etc.)
+                - 'both': Apply both noise types
+            gate_sequence_noise_rules: Custom transformation rules for gate sequence noise
+                If None, uses defaults (HH→HX, XX→XZ, ZZ→ZH)
+            gate_sequence_noise_prob: Probability of applying gate sequence transformations (0-1)
+            noise_seed: Random seed for gate sequence noise (if probabilistic)
         """
         self.num_qubits = num_qubits
         self.base_circuit_ops = copy.deepcopy(base_circuit_ops)
@@ -58,7 +71,33 @@ class PQCModelBase:
         self.pqc_blocks = pqc_blocks
         self.gate_blocks = gate_blocks
         
-        # Store noise arrays (fixed during training)
+        # Store noise configuration
+        self.noise_type = noise_type.lower()
+        self.gate_sequence_noise_rules = gate_sequence_noise_rules
+        self.gate_sequence_noise_prob = gate_sequence_noise_prob
+        self.noise_seed = noise_seed
+        
+        # Apply gate sequence noise if requested
+        if self.noise_type in ['gate_sequence', 'both']:
+            print(f"Applying gate sequence noise (type={self.noise_type}, prob={gate_sequence_noise_prob})")
+            if gate_sequence_noise_prob < 1.0:
+                # Probabilistic transformations
+                self.base_circuit_ops = apply_gate_sequence_noise_probabilistic(
+                    self.base_circuit_ops,
+                    transformation_rules=gate_sequence_noise_rules,
+                    error_probability=gate_sequence_noise_prob,
+                    seed=noise_seed
+                )
+            else:
+                # Deterministic transformations
+                self.base_circuit_ops = apply_gate_sequence_noise(
+                    self.base_circuit_ops,
+                    noise=gate_sequence_noise_rules,
+                    seed=noise_seed
+                )
+        
+        # Store rotation noise arrays (fixed during training)
+        # These are used only if noise_type is 'rotation' or 'both'
         self.x_noise = x_noise.astype(np.float32)
         self.z_noise = z_noise.astype(np.float32)
         
@@ -92,11 +131,17 @@ class PQCModelBase:
         
         # Build main circuit template
         template_type = self.pqc_arch.get_template_type()
+        
+        # Determine whether to add rotation noise to template
+        # - If noise_type is 'rotation' or 'both': add RxRz noise gates
+        # - If noise_type is 'gate_sequence': don't add rotation noise (already applied gate mods)
+        add_rotation_noise = self.noise_type in ['rotation', 'both']
+        
         self.template = build_pqc_circuit_template(
-            base_ops=base_circuit_ops,
+            base_ops=self.base_circuit_ops,  # Use potentially modified ops
             num_qubits=num_qubits,
             num_gate_blocks=gate_blocks,
-            add_noise=True,
+            add_noise=add_rotation_noise,
             pqc_type=template_type
         )
         
@@ -395,11 +440,13 @@ class PQCModelBase:
         block_base_ops = self.base_circuit_ops[gate_start:gate_end]
         
         template_type = self.pqc_arch.get_template_type()
+        add_rotation_noise = self.noise_type in ['rotation', 'both']
+        
         return build_pqc_circuit_template(
             base_ops=block_base_ops,
             num_qubits=self.num_qubits,
             num_gate_blocks=self.gate_blocks,
-            add_noise=True,
+            add_noise=add_rotation_noise,
             pqc_type=template_type
         )
     
@@ -409,10 +456,12 @@ class PQCModelBase:
         partial_base_ops = self.base_circuit_ops[:num_gates_to_include]
         
         template_type = self.pqc_arch.get_template_type()
+        add_rotation_noise = self.noise_type in ['rotation', 'both']
+        
         return build_pqc_circuit_template(
             base_ops=partial_base_ops,
             num_qubits=self.num_qubits,
             num_gate_blocks=self.gate_blocks,
-            add_noise=True,
+            add_noise=add_rotation_noise,
             pqc_type=template_type
         )
