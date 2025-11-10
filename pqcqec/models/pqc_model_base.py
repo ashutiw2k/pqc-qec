@@ -93,7 +93,6 @@ class PQCModelBase:
                 self.base_circuit_ops = apply_gate_sequence_noise(
                     self.base_circuit_ops,
                     noise=gate_sequence_noise_rules,
-                    seed=noise_seed
                 )
         
         # Store rotation noise arrays (fixed during training)
