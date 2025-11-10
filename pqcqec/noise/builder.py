@@ -32,7 +32,7 @@ def apply_gate_sequence_noise(
     
     Args:
         base_ops: List of operations as (gate, qubits, params) tuples
-        transformation_rules: Dict mapping (gate1, gate2) → (gate1, modified_gate2)
+        noise: Dict mapping (gate1, gate2) → (gate1, modified_gate2)
             If None, uses default rules: HH→HX, XX→XZ, ZZ→ZH
         seed: Random seed for determining which pairs to modify (future extension)
     
@@ -63,7 +63,7 @@ def apply_gate_sequence_noise(
         for (g1, g2), (r1, r2) in noise.items()
     }
     
-    # Track the last gate applied to each qubit
+    # Track the last gate applied to each qubit (using ORIGINAL gates for pair detection)
     last_gate_per_qubit: Dict[int, Tuple[int, str]] = {}  # qubit → (index, gate_name)
     
     # Create output list (will be modified in place)
@@ -96,12 +96,12 @@ def apply_gate_sequence_noise(
                 # Replace the current gate with the transformed version
                 noisy_ops[idx] = (new_gate, qubits, params)
                 
-                print(f"  Noise applied: {prev_gate.upper()}{gate_lower.upper()} → "
-                      f"{prev_gate.upper()}{new_gate.upper()} on qubit {qubit} "
-                      f"(gates {prev_idx}, {idx})")
+                # print(f"  Noise applied: {prev_gate.upper()}{gate_lower.upper()} → "
+                #       f"{prev_gate.upper()}{new_gate.upper()} on qubit {qubit} "
+                #       f"(gates {prev_idx}, {idx})")
         
-        # Update tracking with current gate (use potentially modified gate name)
-        last_gate_per_qubit[qubit] = (idx, noisy_ops[idx][0].lower())
+        # Update tracking with ORIGINAL gate (not modified) to avoid cascading transformations
+        last_gate_per_qubit[qubit] = (idx, gate_lower)
     
     return noisy_ops
 
@@ -173,7 +173,8 @@ def apply_gate_sequence_noise_probabilistic(
                           f"{prev_gate.upper()}{new_gate.upper()} on qubit {qubit} "
                           f"(gates {prev_idx}→{idx})")
         
-        last_gate_per_qubit[qubit] = (idx, noisy_ops[idx][0].lower())
+        # Use ORIGINAL gate (not modified) to avoid cascading transformations
+        last_gate_per_qubit[qubit] = (idx, gate_lower)
     
     return noisy_ops
 

@@ -366,15 +366,15 @@ def pqc_experiment_custom_statevec_runner(
     
     # Generate noisy outputs using custom backend for comparison
     print('Running circuit with noise using custom backend on test data...')
-    test_circuit_with_noise_ops = uncomp_circuit_ops.copy()
+    # test_circuit_with_noise_ops = uncomp_circuit_ops.copy()
     # Add noise gates to circuit
-    noisy_test_ops = []
-    for i, op in enumerate(test_circuit_with_noise_ops):
-        noisy_test_ops.append(op)
-        gate, qubits, params = op
-        for q in qubits:
-            noisy_test_ops.append(('rx', [q], [float(x_noise_arr[min(i, len(x_noise_arr)-1)])]))
-            noisy_test_ops.append(('rz', [q], [float(z_noise_arr[min(i, len(z_noise_arr)-1)])]))
+    noisy_test_ops = model.get_circuit_tokens().copy()
+    # for i, op in enumerate(test_circuit_with_noise_ops):
+    #     noisy_test_ops.append(op)
+    #     gate, qubits, params = op
+    #     for q in qubits:
+    #         noisy_test_ops.append(('rx', [q], [float(x_noise_arr[min(i, len(x_noise_arr)-1)])]))
+    #         noisy_test_ops.append(('rz', [q], [float(z_noise_arr[min(i, len(z_noise_arr)-1)])]))
     
     noisy_test_jax_ops = build_jax_circuit(noisy_test_ops)
     noisy_state = jax_run_many_states(num_qubits, *noisy_test_jax_ops, ideal_test_input_data)
