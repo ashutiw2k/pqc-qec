@@ -279,7 +279,7 @@ def pqc_experiment_custom_statevec_runner(
         gate_sequence_noise_rules={
             ('h', 'h'): ('h', 'x'),  # HH → HX
             ('x', 'x'): ('x', 'z'),  # XX → XZ
-            ('z', 'z'): ('z', 'x'),  # ZZ → ZX
+            ('z', 'z'): ('z', 'h'),  # ZZ → ZH
         }
     )
 
