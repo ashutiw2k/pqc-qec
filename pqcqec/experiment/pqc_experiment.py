@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 import optax
 import numpy as np
+import copy
 
 from ..circuits.generate import generate_random_circuit
 from ..circuits.modify import tokenize_qiskit_circuit
@@ -266,21 +267,37 @@ def pqc_experiment_custom_statevec_runner(
         pqc_type='zxz'
     )
 
+    # Apply gate sequence noise transformations first to determine final circuit length
+    # This is needed because gate sequence noise can change circuit length (e.g., HH → HXRZRX)
+    gate_sequence_noise_rules = {
+        ('h', 'h'): [('h', []), ('x', []), ('rz', [0.314]), ('rx', [0.314])],  # HH → HXRz(0.314)Rx(0.314)
+        ('x', 'x'): [('x', []), ('z', []), ('rz', [0.314]), ('rx', [0.314])],  # XX → XZRx(0.314)Rz(0.314)
+        ('z', 'z'): [('z', []), ('h', []), ('rz', [0.314]), ('rx', [0.314])],  # ZZ → ZHRx(0.314)Rz(0.314)
+    }
+    uncomp_circuit_ops_copy = copy.deepcopy(uncomp_circuit_ops)
+    # Import the noise function to pre-compute the transformed circuit
+    from ..noise.builder import apply_gate_sequence_noise
+    transformed_ops = apply_gate_sequence_noise(uncomp_circuit_ops_copy, noise=gate_sequence_noise_rules)
+    final_circuit_length = len(transformed_ops)
+    
+    print(f"Circuit length after gate sequence noise: {len(uncomp_circuit_ops_copy)} → {final_circuit_length}")
+    
+    # Create dummy noise arrays sized for the TRANSFORMED circuit
+    # These are not used since add_rotation_noise=False when noise_type='gate_sequence'
+    dummy_x_noise = np.zeros(final_circuit_length, dtype=np.float32)
+    dummy_z_noise = np.zeros(final_circuit_length, dtype=np.float32)
+
     model = PQCModelBase(
-        base_circuit_ops=uncomp_circuit_ops,
+        base_circuit_ops=uncomp_circuit_ops_copy,
         num_qubits=num_qubits,
-        x_noise=x_noise_arr,
-        z_noise=z_noise_arr,
+        x_noise=dummy_x_noise,  # Not used when noise_type='gate_sequence'
+        z_noise=dummy_z_noise,  # Not used when noise_type='gate_sequence'
         pqc_architecture=pqc_arch,
         pqc_blocks=pqc_blocks,
         gate_blocks=gate_blocks,
         pqc_type='zxz',
-        noise_type='gate_sequence',  # Use gate sequence noise only,
-        gate_sequence_noise_rules={
-            ('h', 'h'): ('h', 'x'),  # HH → HX
-            ('x', 'x'): ('x', 'z'),  # XX → XZ
-            ('z', 'z'): ('z', 'h'),  # ZZ → ZH
-        }
+        noise_type='gate_sequence',  # Use gate sequence noise only
+        gate_sequence_noise_rules=gate_sequence_noise_rules
     )
 
     params = model.get_model_params_dict()
@@ -368,7 +385,8 @@ def pqc_experiment_custom_statevec_runner(
     print('Running circuit with noise using custom backend on test data...')
     # test_circuit_with_noise_ops = uncomp_circuit_ops.copy()
     # Add noise gates to circuit
-    noisy_test_ops = model.get_circuit_tokens().copy()
+    # noisy_test_ops = model.get_circuit_tokens().copy()
+    noisy_test_ops = model.base_circuit_ops.copy() # These are noisy ops, no PQC.
     # for i, op in enumerate(test_circuit_with_noise_ops):
     #     noisy_test_ops.append(op)
     #     gate, qubits, params = op

@@ -122,10 +122,10 @@ class PQCModelBase:
         # Initialize parameters using architecture
         self.params = self.pqc_arch.initialize_params()
         
-        # Store base circuit parameters
+        # Store base circuit parameters (use self.base_circuit_ops after gate sequence noise is applied)
         self.base_params = np.array([
             op[2][0] if len(op[2]) > 0 else 0.0 
-            for op in base_circuit_ops
+            for op in self.base_circuit_ops
         ], dtype=np.float32)
         
         # Build main circuit template
@@ -139,7 +139,7 @@ class PQCModelBase:
         self.template = build_pqc_circuit_template(
             base_ops=self.base_circuit_ops,  # Use potentially modified ops
             num_qubits=num_qubits,
-            num_gate_blocks=gate_blocks,
+            num_gate_blocks=len(self.base_circuit_ops), # For now, append RZRXRZ at the END of circuit. 
             add_noise=add_rotation_noise,
             pqc_type=template_type
         )

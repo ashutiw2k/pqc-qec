@@ -230,3 +230,139 @@ def test_apply_gate_sequence_noise_multiple_rules_simultaneously():
     assert noisy_ops[1] == ('x', [0], [])
     assert noisy_ops[3] == ('z', [1], [])
     assert noisy_ops[5] == ('y', [2], [])
+
+
+def test_apply_gate_sequence_noise_variable_length_2_to_3():
+    """Test variable-length transformation: HH → HZX (2→3)."""
+    base_ops = [
+        ('h', [0], []),
+        ('h', [0], []),
+    ]
+    custom_rules = {
+        ('h', 'h'): [('h', []), ('z', []), ('x', [])],
+    }
+
+    noisy_ops = apply_gate_sequence_noise(base_ops, noise=custom_rules)
+
+    assert len(noisy_ops) == 3
+    assert noisy_ops[0] == ('h', [0], [])
+    assert noisy_ops[1] == ('z', [0], [])
+    assert noisy_ops[2] == ('x', [0], [])
+
+
+def test_apply_gate_sequence_noise_variable_length_2_to_1():
+    """Test variable-length reduction: HH → H (2→1)."""
+    base_ops = [
+        ('h', [0], []),
+        ('h', [0], []),
+    ]
+    custom_rules = {
+        ('h', 'h'): [('h', [])],
+    }
+
+    noisy_ops = apply_gate_sequence_noise(base_ops, noise=custom_rules)
+
+    assert len(noisy_ops) == 1
+    assert noisy_ops[0] == ('h', [0], [])
+
+
+def test_apply_gate_sequence_noise_variable_length_with_params():
+    """Test variable-length with explicit parameters."""
+    base_ops = [
+        ('h', [0], []),
+        ('h', [0], []),
+    ]
+    custom_rules = {
+        ('h', 'h'): [('h', []), ('rz', [0.1]), ('x', [])],
+    }
+
+    noisy_ops = apply_gate_sequence_noise(base_ops, noise=custom_rules)
+
+    assert len(noisy_ops) == 3
+    assert noisy_ops[0] == ('h', [0], [])
+    assert noisy_ops[1] == ('rz', [0], [0.1])
+    assert noisy_ops[2] == ('x', [0], [])
+
+
+def test_apply_gate_sequence_noise_variable_length_param_inheritance():
+    """Test parameter inheritance in variable-length transformations."""
+    theta = [0.5]
+    phi = [0.3]
+    base_ops = [
+        ('rz', [0], theta),
+        ('rz', [0], phi),
+    ]
+    custom_rules = {
+        ('rz', 'rz'): [('rz', None), ('rx', [0.1]), ('rz', None)],
+    }
+
+    noisy_ops = apply_gate_sequence_noise(base_ops, noise=custom_rules)
+
+    assert len(noisy_ops) == 3
+    assert noisy_ops[0] == ('rz', [0], theta)  # Inherits from first
+    assert noisy_ops[1] == ('rx', [0], [0.1])  # Explicit param
+    assert noisy_ops[2] == ('rz', [0], phi)    # Inherits from second
+
+
+def test_apply_gate_sequence_noise_variable_length_non_overlap():
+    """Test non-overlapping behavior with variable-length: HHH → HZX + H."""
+    base_ops = [
+        ('h', [0], []),
+        ('h', [0], []),
+        ('h', [0], []),
+    ]
+    custom_rules = {
+        ('h', 'h'): [('h', []), ('z', []), ('x', [])],
+    }
+
+    noisy_ops = apply_gate_sequence_noise(base_ops, noise=custom_rules)
+
+    assert len(noisy_ops) == 4  # 3 from first pair + 1 untransformed
+    assert noisy_ops[0] == ('h', [0], [])
+    assert noisy_ops[1] == ('z', [0], [])
+    assert noisy_ops[2] == ('x', [0], [])
+    assert noisy_ops[3] == ('h', [0], [])
+
+
+def test_apply_gate_sequence_noise_variable_length_hhhh():
+    """Test HHHH with variable-length: should become HZX + HZX (two transformations)."""
+    base_ops = [
+        ('h', [0], []),
+        ('h', [0], []),
+        ('h', [0], []),
+        ('h', [0], []),
+    ]
+    custom_rules = {
+        ('h', 'h'): [('h', []), ('z', []), ('x', [])],
+    }
+
+    noisy_ops = apply_gate_sequence_noise(base_ops, noise=custom_rules)
+
+    assert len(noisy_ops) == 6  # Two 2→3 transformations
+    assert noisy_ops[0] == ('h', [0], [])
+    assert noisy_ops[1] == ('z', [0], [])
+    assert noisy_ops[2] == ('x', [0], [])
+    assert noisy_ops[3] == ('h', [0], [])
+    assert noisy_ops[4] == ('z', [0], [])
+    assert noisy_ops[5] == ('x', [0], [])
+
+
+def test_apply_gate_sequence_noise_backward_compatible_with_list():
+    """Test backward compatibility: 2-tuple rules still work alongside list rules."""
+    base_ops = [
+        ('h', [0], []),
+        ('h', [0], []),
+        ('x', [0], []),
+        ('x', [0], []),
+    ]
+    custom_rules = {
+        ('h', 'h'): ('h', 'x'),  # Old 2-tuple style
+        ('x', 'x'): [('x', []), ('z', [])],  # New list style
+    }
+
+    noisy_ops = apply_gate_sequence_noise(base_ops, noise=custom_rules)
+
+    assert noisy_ops[0] == ('h', [0], [])
+    assert noisy_ops[1] == ('x', [0], [])
+    assert noisy_ops[2] == ('x', [0], [])
+    assert noisy_ops[3] == ('z', [0], [])
