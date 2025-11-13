@@ -82,7 +82,7 @@ class PQCModelBase:
             print(f"Applying gate sequence noise (type={self.noise_type}, prob={gate_sequence_noise_prob})")
             if gate_sequence_noise_prob < 1.0:
                 # Probabilistic transformations
-                self.base_circuit_ops = apply_gate_sequence_noise_probabilistic(
+                self.noisy_circuit_ops = apply_gate_sequence_noise_probabilistic(
                     self.base_circuit_ops,
                     transformation_rules=gate_sequence_noise_rules,
                     error_probability=gate_sequence_noise_prob,
@@ -90,7 +90,7 @@ class PQCModelBase:
                 )
             else:
                 # Deterministic transformations
-                self.base_circuit_ops = apply_gate_sequence_noise(
+                self.noisy_circuit_ops = apply_gate_sequence_noise(
                     self.base_circuit_ops,
                     noise=gate_sequence_noise_rules,
                 )
@@ -121,11 +121,11 @@ class PQCModelBase:
         
         # Initialize parameters using architecture
         self.params = self.pqc_arch.initialize_params()
-        
-        # Store base circuit parameters (use self.base_circuit_ops after gate sequence noise is applied)
+
+        # Store base circuit parameters (use self.noisy_circuit_ops after gate sequence noise is applied)
         self.base_params = np.array([
             op[2][0] if len(op[2]) > 0 else 0.0 
-            for op in self.base_circuit_ops
+            for op in self.noisy_circuit_ops
         ], dtype=np.float32)
         
         # Build main circuit template
@@ -137,9 +137,9 @@ class PQCModelBase:
         add_rotation_noise = self.noise_type in ['rotation', 'both']
         
         self.template = build_pqc_circuit_template(
-            base_ops=self.base_circuit_ops,  # Use potentially modified ops
+            base_ops=self.noisy_circuit_ops,  # Use potentially modified ops
             num_qubits=num_qubits,
-            num_gate_blocks=len(self.base_circuit_ops), # For now, append RZRXRZ at the END of circuit. 
+            num_gate_blocks=len(self.noisy_circuit_ops), # For now, append RZRXRZ at the END of circuit. 
             add_noise=add_rotation_noise,
             pqc_type=template_type
         )

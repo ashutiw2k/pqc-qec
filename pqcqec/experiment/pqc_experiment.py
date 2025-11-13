@@ -270,9 +270,9 @@ def pqc_experiment_custom_statevec_runner(
     # Apply gate sequence noise transformations first to determine final circuit length
     # This is needed because gate sequence noise can change circuit length (e.g., HH → HXRZRX)
     gate_sequence_noise_rules = {
-        ('h', 'h'): [('h', []), ('x', []), ('rz', [0.314]), ('rx', [0.314])],  # HH → HXRz(0.314)Rx(0.314)
-        ('x', 'x'): [('x', []), ('z', []), ('rz', [0.314]), ('rx', [0.314])],  # XX → XZRx(0.314)Rz(0.314)
-        ('z', 'z'): [('z', []), ('h', []), ('rz', [0.314]), ('rx', [0.314])],  # ZZ → ZHRx(0.314)Rz(0.314)
+        ('h', 'h'): [('h', None), ('x', None), ('rz', [0.314]), ('rx', [0.314])],  # HH → HXRz(0.314)Rx(0.314)
+        ('x', 'x'): [('x', None), ('z', None), ('rz', [0.314]), ('rx', [0.314])],  # XX → XZRx(0.314)Rz(0.314)
+        ('z', 'z'): [('z', None), ('h', None), ('rz', [0.314]), ('rx', [0.314])],  # ZZ → ZHRx(0.314)Rz(0.314)
     }
     uncomp_circuit_ops_copy = copy.deepcopy(uncomp_circuit_ops)
     # Import the noise function to pre-compute the transformed circuit
@@ -386,7 +386,7 @@ def pqc_experiment_custom_statevec_runner(
     # test_circuit_with_noise_ops = uncomp_circuit_ops.copy()
     # Add noise gates to circuit
     # noisy_test_ops = model.get_circuit_tokens().copy()
-    noisy_test_ops = model.base_circuit_ops.copy() # These are noisy ops, no PQC.
+    noisy_test_ops = model.noisy_circuit_ops.copy() # These are noisy ops, no PQC.
     # for i, op in enumerate(test_circuit_with_noise_ops):
     #     noisy_test_ops.append(op)
     #     gate, qubits, params = op
