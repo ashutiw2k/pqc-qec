@@ -21,50 +21,69 @@ def add_rotation_noise_to_base_ops(base_ops, noise: Dict[str, np.ndarray]) -> Li
 
 def apply_gate_sequence_noise(
     base_ops: List[Tuple],
-    noise: Optional[Dict[Tuple[str, str], 
+    noise: Optional[Dict[Tuple[str, ...], 
                         Tuple[str, str] | 
                         Tuple[Tuple[str, List], Tuple[str, List]] |
                         List[Tuple[str, List]]]] = None
 ) -> List[Tuple]:
     """
-    Apply coherent noise by modifying consecutive gate pairs based on transformation rules.
+    Apply coherent noise by modifying consecutive gate sequences based on transformation rules.
     
-    Uses non-overlapping transformations: once a gate is part of a transformed pair,
-    it cannot be part of another transformation. Supports variable-length replacements.
+    Uses non-overlapping transformations: once gates are part of a transformed sequence,
+    they cannot be part of another transformation. Supports variable-length input patterns
+    and variable-length output replacements.
     
     Args:
         base_ops: List of operations as (gate, qubits, params) tuples
-        noise: Dict mapping (gate1, gate2) → replacement
+        noise: Dict mapping gate_pattern → replacement
+            Pattern key can be any length tuple: ('h', 'h'), ('h', 'h', 'h'), ('x', 'y', 'z'), etc.
+            
             Replacement can be:
-            - Simple 2-tuple: ('h', 'x')  # 2→2, inherit params
-            - Extended 2-tuple: (('rx', [0.5]), ('rz', [0.3]))  # 2→2, custom params
-            - List (variable length): [('h', []), ('z', []), ('x', [0.1])]  # 2→N
+            - Simple tuple: ('h', 'x')  # For 2-gate patterns, 2→2, inherit params
+            - Extended tuple: (('rx', [0.5]), ('rz', [0.3]))  # 2→2, custom params
+            - List (any length): [('h', []), ('z', []), ('x', [0.1])]  # N→M transformation
             
             If None, uses default rules: HH→HX, XX→XZ, ZZ→ZH
             
             Parameter inheritance for list form:
-            - First element inherits params from gate1
-            - Last element inherits params from gate2
+            - First element inherits params from first gate in pattern
+            - Last element inherits params from last gate in pattern
             - Middle elements use explicit params or [] if None
     
     Returns:
         Modified list of operations with coherent gate errors applied.
         May have different length than input if variable-length rules are used.
+        Always returns a new list (never modifies base_ops).
         
     Note:
-        For multi-qubit gates, qubit lists must match exactly in order.
-        E.g., [0,1] will not match [1,0].
+        - Patterns match consecutive gates on the SAME qubits only
+        - Multi-qubit gates: qubit lists must match exactly in order ([0,1] ≠ [1,0])
+        - Greedy longest-match: longer patterns take priority over shorter ones
+        - Non-overlapping: once gates are consumed, they can't match again
         
     Example:
-        >>> # Simple 2→2 transformation
+        >>> # 2-gate pattern → 2 gates
         >>> ops = [('h', [0], []), ('h', [0], []), ('x', [1], [])]
-        >>> noisy = apply_gate_sequence_noise(ops)
+        >>> noisy = apply_gate_sequence_noise(ops, {('h','h'): ('h', 'x')})
         >>> # Result: [('h', [0], []), ('x', [0], []), ('x', [1], [])]
         
-        >>> # Variable-length transformation 2→3
+        >>> # 2-gate pattern → 3 gates
         >>> ops = [('h', [0], []), ('h', [0], [])]
         >>> noisy = apply_gate_sequence_noise(ops, {('h','h'): [('h',[]), ('z',[]), ('x',[])]})
         >>> # Result: [('h', [0], []), ('z', [0], []), ('x', [0], [])]
+        
+        >>> # 3-gate pattern → 1 gate
+        >>> ops = [('h', [0], []), ('h', [0], []), ('h', [0], [])]
+        >>> noisy = apply_gate_sequence_noise(ops, {('h','h','h'): [('z',[])]})
+        >>> # Result: [('z', [0], [])]
+        
+        >>> # Greedy matching: longest pattern wins
+        >>> ops = [('x', [0], []), ('x', [0], []), ('x', [0], [])]
+        >>> noisy = apply_gate_sequence_noise(ops, {
+        ...     ('x','x'): [('y',[])],      # 2→1
+        ...     ('x','x','x'): [('z',[])]   # 3→1 (this wins)
+        ... })
+        >>> # Result: [('z', [0], [])]
     """
     if not base_ops:
         return []
@@ -77,21 +96,41 @@ def apply_gate_sequence_noise(
         }
     
     # Normalize rules: convert all forms to list of (gate, params) tuples
+    # Also organize by pattern length for efficient lookup
     normalized_rules = {}
-    for (g1, g2), replacement in noise.items():
-        key = (g1.lower(), g2.lower())
+    pattern_lengths = set()
+    
+    for gate_pattern, replacement in noise.items():
+        # Ensure gate_pattern is a tuple
+        if not isinstance(gate_pattern, tuple):
+            raise ValueError(f"Pattern key must be a tuple, got {type(gate_pattern)}: {gate_pattern}")
         
+        # Convert pattern to lowercase
+        key = tuple(g.lower() for g in gate_pattern)
+        pattern_lengths.add(len(key))
+        
+        # Normalize replacement to list of (gate, params) tuples
         if isinstance(replacement, list):
             # List form: [('gate1', params1), ('gate2', params2), ...]
             normalized_rules[key] = [(g.lower(), p) for g, p in replacement]
-        elif isinstance(replacement[0], tuple):
-            # Extended 2-tuple form: (('gate1', params1), ('gate2', params2))
-            (r1, p1), (r2, p2) = replacement
-            normalized_rules[key] = [(r1.lower(), p1), (r2.lower(), p2)]
+        elif len(gate_pattern) == 2 and len(replacement) == 2:
+            # Could be simple 2-tuple or extended 2-tuple, check first element
+            if isinstance(replacement[0], tuple):
+                # Extended 2-tuple form: (('gate1', params1), ('gate2', params2))
+                (r1, p1), (r2, p2) = replacement
+                normalized_rules[key] = [(r1.lower(), p1), (r2.lower(), p2)]
+            else:
+                # Simple 2-tuple form: ('gate1', 'gate2')
+                r1, r2 = replacement
+                normalized_rules[key] = [(r1.lower(), None), (r2.lower(), None)]
         else:
-            # Simple 2-tuple form: ('gate1', 'gate2')
-            r1, r2 = replacement
-            normalized_rules[key] = [(r1.lower(), None), (r2.lower(), None)]
+            raise ValueError(
+                f"Invalid replacement format for pattern {gate_pattern}: {replacement}. "
+                f"Expected list of (gate, params) tuples."
+            )
+    
+    # Sort pattern lengths from longest to shortest (greedy longest match)
+    sorted_pattern_lengths = sorted(pattern_lengths, reverse=True)
     
     # Pre-compute lowercase gate names to avoid repeated .lower() calls in loop
     gate_names_lower = [op[0].lower() for op in base_ops]
@@ -102,53 +141,67 @@ def apply_gate_sequence_noise(
     i = 0
     
     while i < len(base_ops):
-        # Check if this position can start a pair transformation
-        if i < len(base_ops) - 1:
-            op1 = base_ops[i]
-            op2 = base_ops[i + 1]
+        matched = False
+        
+        # Try patterns from longest to shortest (greedy matching)
+        for pattern_length in sorted_pattern_lengths:
+            # Check if we have enough gates left
+            if i + pattern_length > len(base_ops):
+                continue
             
-            gate1, qubits1, params1 = op1
-            gate2, qubits2, params2 = op2
+            # Extract the gate sequence pattern
+            gate_pattern = tuple(gate_names_lower[i:i+pattern_length])
             
-            # Check if gates operate on the same qubits and match a rule
-            if tuple(qubits1) == tuple(qubits2):
-                gate_pair = (gate_names_lower[i], gate_names_lower[i + 1])
+            # Check if this pattern is in our rules
+            if gate_pattern in normalized_rules:
+                # Verify all gates in the pattern operate on the same qubits
+                first_qubits = tuple(base_ops[i][1])
+                qubits_match = all(
+                    tuple(base_ops[i+j][1]) == first_qubits
+                    for j in range(pattern_length)
+                )
                 
-                if gate_pair in normalized_rules:
-                    replacement_seq = normalized_rules[gate_pair]
+                if qubits_match:
+                    # Extract params from first and last gates in pattern
+                    first_gate_params = base_ops[i][2]
+                    last_gate_params = base_ops[i + pattern_length - 1][2]
                     
-                    # Apply replacement sequence
+                    # Apply the replacement sequence
+                    replacement_seq = normalized_rules[gate_pattern]
+                    
                     for idx, (new_gate, new_params) in enumerate(replacement_seq):
                         # Parameter inheritance logic:
-                        # - First element (idx==0): inherit from gate1 if params is None
-                        # - Last element (idx==len-1): inherit from gate2 if params is None
+                        # - First element (idx==0): inherit from first gate if params is None
+                        # - Last element (idx==len-1): inherit from last gate if params is None
                         # - Middle elements: use explicit params or []
                         if new_params is None:
                             if idx == 0:
-                                final_params = params1
+                                final_params = first_gate_params
                             elif idx == len(replacement_seq) - 1:
-                                final_params = params2
+                                final_params = last_gate_params
                             else:
                                 final_params = []
                         else:
                             final_params = new_params
                         
-                        noisy_ops.append((new_gate, qubits1, final_params))
+                        noisy_ops.append((new_gate, first_qubits, final_params))
                     
-                    # Skip both original gates (they were replaced)
-                    i += 2
-                    continue
+                    # Skip all gates in the matched pattern
+                    i += pattern_length
+                    matched = True
+                    break  # Break out of pattern_length loop
         
         # No transformation: copy original gate
-        noisy_ops.append(base_ops[i])
-        i += 1
+        if not matched:
+            noisy_ops.append(base_ops[i])
+            i += 1
     
     return noisy_ops
 
 
 def apply_gate_sequence_noise_probabilistic(
     base_ops: List[Tuple],
-    transformation_rules: Optional[Dict[Tuple[str, str], 
+    transformation_rules: Optional[Dict[Tuple[str, ...], 
                                        Tuple[str, str] | 
                                        Tuple[Tuple[str, List], Tuple[str, List]] |
                                        List[Tuple[str, List]]]] = None,
@@ -156,25 +209,28 @@ def apply_gate_sequence_noise_probabilistic(
     seed: Optional[int] = None
 ) -> List[Tuple]:
     """
-    Apply coherent noise probabilistically - only transform some matching pairs.
+    Apply coherent noise probabilistically - only transform some matching sequences.
     
-    Uses non-overlapping transformations: once a gate is part of a transformed pair,
-    it cannot be part of another transformation. Supports variable-length replacements.
+    Uses non-overlapping transformations: once gates are part of a transformed sequence,
+    they cannot be part of another transformation. Supports variable-length input patterns
+    and variable-length output replacements.
     
     Args:
         base_ops: List of operations as (gate, qubits, params) tuples
-        transformation_rules: Dict mapping (gate1, gate2) → replacement
+        transformation_rules: Dict mapping gate_pattern → replacement
+            Pattern key can be any length tuple: ('h', 'h'), ('h', 'h', 'h'), etc.
             Replacement can be:
-            - Simple 2-tuple: ('h', 'x')
-            - Extended 2-tuple: (('rx', [0.5]), ('rz', [0.3]))
-            - List (variable length): [('h', []), ('z', []), ('x', [0.1])]
+            - Simple tuple: ('h', 'x')
+            - Extended tuple: (('rx', [0.5]), ('rz', [0.3]))
+            - List (any length): [('h', []), ('z', []), ('x', [0.1])]
             If None, uses default rules: HH→HX, XX→XZ, ZZ→ZH
-        error_probability: Probability [0, 1] that a matching pair will be transformed
+        error_probability: Probability [0, 1] that a matching pattern will be transformed
         seed: Random seed for reproducibility
     
     Returns:
         Modified list of operations with probabilistic coherent errors.
         May have different length than input if variable-length rules are used.
+        Always returns a new list.
     """
     if not base_ops:
         return []
@@ -189,79 +245,112 @@ def apply_gate_sequence_noise_probabilistic(
     rng = np.random.RandomState(seed)
     
     # Normalize rules: convert all forms to list of (gate, params) tuples
+    # Also organize by pattern length for efficient lookup
     normalized_rules = {}
-    for (g1, g2), replacement in transformation_rules.items():
-        key = (g1.lower(), g2.lower())
+    pattern_lengths = set()
+    
+    for gate_pattern, replacement in transformation_rules.items():
+        # Ensure gate_pattern is a tuple
+        if not isinstance(gate_pattern, tuple):
+            raise ValueError(f"Pattern key must be a tuple, got {type(gate_pattern)}: {gate_pattern}")
         
+        # Convert pattern to lowercase
+        key = tuple(g.lower() for g in gate_pattern)
+        pattern_lengths.add(len(key))
+        
+        # Normalize replacement to list of (gate, params) tuples
         if isinstance(replacement, list):
             # List form: [('gate1', params1), ('gate2', params2), ...]
             normalized_rules[key] = [(g.lower(), p) for g, p in replacement]
-        elif isinstance(replacement[0], tuple):
-            # Extended 2-tuple form: (('gate1', params1), ('gate2', params2))
-            (r1, p1), (r2, p2) = replacement
-            normalized_rules[key] = [(r1.lower(), p1), (r2.lower(), p2)]
+        elif len(gate_pattern) == 2 and len(replacement) == 2:
+            # Could be simple 2-tuple or extended 2-tuple, check first element
+            if isinstance(replacement[0], tuple):
+                # Extended 2-tuple form: (('gate1', params1), ('gate2', params2))
+                (r1, p1), (r2, p2) = replacement
+                normalized_rules[key] = [(r1.lower(), p1), (r2.lower(), p2)]
+            else:
+                # Simple 2-tuple form: ('gate1', 'gate2')
+                r1, r2 = replacement
+                normalized_rules[key] = [(r1.lower(), None), (r2.lower(), None)]
         else:
-            # Simple 2-tuple form: ('gate1', 'gate2')
-            r1, r2 = replacement
-            normalized_rules[key] = [(r1.lower(), None), (r2.lower(), None)]
+            raise ValueError(
+                f"Invalid replacement format for pattern {gate_pattern}: {replacement}. "
+                f"Expected list of (gate, params) tuples."
+            )
+    
+    # Sort pattern lengths from longest to shortest (greedy longest match)
+    sorted_pattern_lengths = sorted(pattern_lengths, reverse=True)
     
     # Pre-compute lowercase gate names to avoid repeated .lower() calls in loop
     gate_names_lower = [op[0].lower() for op in base_ops]
     
     # Use streaming builder to construct output
     noisy_ops = []
-    any_transformation = False
     i = 0
     
     while i < len(base_ops):
-        # Check if this position can start a pair transformation
-        if i < len(base_ops) - 1:
-            op1 = base_ops[i]
-            op2 = base_ops[i + 1]
+        matched = False
+        
+        # Try patterns from longest to shortest (greedy matching)
+        for pattern_length in sorted_pattern_lengths:
+            # Check if we have enough gates left
+            if i + pattern_length > len(base_ops):
+                continue
             
-            gate1, qubits1, params1 = op1
-            gate2, qubits2, params2 = op2
+            # Extract the gate sequence pattern
+            gate_pattern = tuple(gate_names_lower[i:i+pattern_length])
             
-            # Check if gates operate on the same qubits and match a rule
-            if tuple(qubits1) == tuple(qubits2):
-                gate_pair = (gate_names_lower[i], gate_names_lower[i + 1])
+            # Check if this pattern is in our rules
+            if gate_pattern in normalized_rules:
+                # Verify all gates in the pattern operate on the same qubits
+                first_qubits = tuple(base_ops[i][1])
+                qubits_match = all(
+                    tuple(base_ops[i+j][1]) == first_qubits
+                    for j in range(pattern_length)
+                )
                 
-                if gate_pair in normalized_rules:
+                if qubits_match:
                     # Probabilistically apply transformation
                     if rng.random() < error_probability:
-                        any_transformation = True
-                        replacement_seq = normalized_rules[gate_pair]
                         
-                        # Apply replacement sequence
+                        # Extract params from first and last gates in pattern
+                        first_gate_params = base_ops[i][2]
+                        last_gate_params = base_ops[i + pattern_length - 1][2]
+                        
+                        # Apply the replacement sequence
+                        replacement_seq = normalized_rules[gate_pattern]
+                        
                         for idx, (new_gate, new_params) in enumerate(replacement_seq):
                             # Parameter inheritance logic
                             if new_params is None:
                                 if idx == 0:
-                                    final_params = params1
+                                    final_params = first_gate_params
                                 elif idx == len(replacement_seq) - 1:
-                                    final_params = params2
+                                    final_params = last_gate_params
                                 else:
                                     final_params = []
                             else:
                                 final_params = new_params
                             
-                            noisy_ops.append((new_gate, qubits1, final_params))
+                            noisy_ops.append((new_gate, first_qubits, final_params))
                         
-                        # Format qubit display (single or multi-qubit)
-                        qubit_str = f"qubit {qubits1[0]}" if len(qubits1) == 1 else f"qubits {qubits1}"
+                        # Format pattern display
+                        pattern_str = ''.join(g.upper() for g in gate_pattern)
                         replacement_str = ''.join(g.upper() for g, _ in replacement_seq)
-                        print(f"  Coherent error: {gate1.upper()}{gate2.upper()} → "
-                              f"{replacement_str} on {qubit_str} (gates {i}→{i+1})")
+                        qubit_str = f"qubit {first_qubits[0]}" if len(first_qubits) == 1 else f"qubits {first_qubits}"
+                        print(f"  Coherent error: {pattern_str} → {replacement_str} on {qubit_str} (gates {i}→{i+pattern_length-1})")
                         
-                        # Skip both original gates (they were replaced)
-                        i += 2
-                        continue
+                        # Skip all gates in the matched pattern
+                        i += pattern_length
+                        matched = True
+                        break  # Break out of pattern_length loop
         
         # No transformation: copy original gate
-        noisy_ops.append(base_ops[i])
-        i += 1
+        if not matched:
+            noisy_ops.append(base_ops[i])
+            i += 1
     
-    # Return original if no transformations occurred
-    return noisy_ops if any_transformation else base_ops
+    # Always return a new list (for consistency with deterministic version)
+    return noisy_ops
 
 
