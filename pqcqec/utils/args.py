@@ -3,6 +3,10 @@ import sys
 import os
 import ctypes
 from pathlib import Path
+import torch
+from .constants import PQC_MAPPINGS, PENNYLANE_MODELS
+import json
+
 
 
 def _preload_nvjitlink() -> None:
@@ -31,10 +35,6 @@ def _preload_nvjitlink() -> None:
 
 
 _preload_nvjitlink()
-import torch
-from .constants import *
-import json
-
 
 def load_config(path: str) -> dict:
     """Load a JSON configuration file and return its contents as a dict."""
@@ -177,10 +177,16 @@ ARG_DEFINITIONS = {
         'help': 'Gate Distribution in Random Circuit (optional)'
     },
     'noise_dist': {
-        'flags': ['--noise_dist', '-z'],
+        'flags': ['--noise_dist'],
         'type': json.loads,
         'nargs': '?',
-        'help': 'Noise Distribution in Circuit (optional)'
+        'help': 'Noise Distribution in Circuit (optional, deprecated - use noise_config instead)'
+    },
+    'noise_config': {
+        'flags': ['--noise_config', '-z'],
+        'type': str,
+        'nargs': '?',
+        'help': 'Path to JSON file containing gate sequence noise transformation rules'
     },
     'gpu': {
         'flags': ['--gpu'],
@@ -354,6 +360,12 @@ def get_all_valid_args(args, include_args=None):
         gate_range = normalize_range(result['gate_range'], 'gate_range')
         result['gates'] = list(range(gate_range[0], gate_range[1] + 1, *gate_range[2:]))
     
+    # Load noise config from JSON file if provided
+    if result.get('noise_config'):
+        result['gate_sequence_noise_rules'] = load_noise_config(result['noise_config'])
+    else:
+        result['gate_sequence_noise_rules'] = None
+    
     # Create output directory
     if result['figure_output']:
         os.makedirs(result['figure_output'], exist_ok=True)
@@ -362,3 +374,64 @@ def get_all_valid_args(args, include_args=None):
     
     print(f"Final Config after parsing arguments:\n{result}\n")
     return result
+
+
+def load_noise_config(config_path: str) -> dict:
+    """
+    Load gate sequence noise transformation rules from a JSON file.
+    
+    Args:
+        config_path: Path to JSON file containing noise configuration
+        
+    Returns:
+        Dictionary mapping gate patterns (as tuples) to replacement sequences
+        
+    Example JSON format:
+        {
+            "rules": {
+                "h,h": [["h", null], ["x", null]],
+                "x,x,x": [["z", null]],
+                "h,h,h": [["h", null], ["z", []], ["x", [0.314]]]
+            }
+        }
+    
+    The keys are comma-separated gate names (pattern), values are lists of [gate, params] pairs.
+    Use null for params to inherit from original gates, [] for no params, or [value] for specific params.
+    """
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Noise config file not found: {config_path}")
+    
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+    
+    if 'rules' not in config:
+        raise ValueError(f"Noise config file must contain 'rules' key: {config_path}")
+    
+    # Convert string keys (comma-separated) to tuple keys
+    # Convert JSON arrays to Python tuples/lists as expected by apply_gate_sequence_noise
+    noise_rules = {}
+    for pattern_str, replacement in config['rules'].items():
+        # Parse pattern: "h,h,h" -> ('h', 'h', 'h')
+        pattern = tuple(g.strip() for g in pattern_str.split(','))
+        
+        # Convert replacement list: [["h", null], ["z", [0.1]]] -> [('h', None), ('z', [0.1])]
+        converted_replacement = []
+        for gate_spec in replacement:
+            if not isinstance(gate_spec, list) or len(gate_spec) != 2:
+                raise ValueError(
+                    f"Invalid replacement format in {config_path} for pattern '{pattern_str}': "
+                    f"Each replacement must be [gate_name, params]. Got: {gate_spec}"
+                )
+            gate_name, params = gate_spec
+            # Convert null to None, keep lists as-is
+            converted_replacement.append((gate_name, params))
+        
+        noise_rules[pattern] = converted_replacement
+    
+    print(f"Loaded {len(noise_rules)} gate sequence noise rules from {config_path}")
+    for pattern, replacement in noise_rules.items():
+        pattern_str = ''.join(g.upper() for g in pattern)
+        replacement_str = '→'.join(g.upper() for g, _ in replacement)
+        print(f"  {pattern_str} → {replacement_str}")
+    
+    return noise_rules

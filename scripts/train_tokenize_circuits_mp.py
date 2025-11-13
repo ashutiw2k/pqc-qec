@@ -14,10 +14,10 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))  # Makes other scripts and functions discoverable
 
 import json
-from qiskit import QuantumCircuit
+# from qiskit import QuantumCircuit
 from qiskit.qasm2 import dumps
 
-from pqcqec.experiment.pqc_experiment import pqc_experiment_runner, pqc_experiment_custom_statevec_runner
+from pqcqec.experiment.pqc_experiment import pqc_experiment_custom_statevec_runner
 from pqcqec.circuits.generate import create_qiskit_circuit_from_ops
 
 from pqcqec.utils.args import get_all_valid_args, parse_args
@@ -139,7 +139,8 @@ def process_seed(args):
             gpu=config['gpu'],
             seed=seed,
             batch_size=config['batch'],
-            add_uncomputation=config['uncomp']
+            add_uncomputation=config['uncomp'],
+            gate_sequence_noise_rules=config.get('gate_sequence_noise_rules', None)
         )
         gc.collect()
     except Exception as e:
@@ -173,6 +174,7 @@ def process_seed(args):
         'pqc_circuit_tokens': pqc_circ,
         'base_circuit_qasm': dumps(create_qiskit_circuit_from_ops(base_circ, qubit)),
         'pqc_circuit_qasm': dumps(create_qiskit_circuit_from_ops(pqc_circ, qubit)),
+        'noise_config': config.get('noise_config', None),
     }
     is_good = mean_fidelity_ideal_pqc > 0.95
     out_path = good_file if is_good else poor_file
@@ -221,7 +223,7 @@ def main():
     # Parse command line arguments
     required_args = ['qubit_range', 'gate_range', 'gate_blocks', 'pqc_blocks', 'epochs', 'config', 'seed',
                      'num_data', 'num_test', 'gate_dist', 'gpu', 'batch', 'figure_output', 'noise_dist', 
-                     'force', 'redo', 'mp_cores', 'uncomp']
+                     'force', 'redo', 'mp_cores', 'uncomp', 'noise_config']
     script_description = 'Train and Tokenize Circuits with error correcting interleaved PQC up for `seed` number of circuits per qubit, gate configuration.'
 
     args = parse_args(required_args, script_description=script_description)
@@ -405,8 +407,11 @@ def main():
             good_fid_dir = os.path.join(data_dir, "good_fidelity")
             poor_fid_dir = os.path.join(data_dir, "poor_fidelity")
 
-            # Save config atomically and minified
-            write_json(config_file, config)
+            # Save config atomically and minified (exclude gate_sequence_noise_rules with tuple keys)
+            config_to_save = {k: v for k, v in config.items() if k != 'gate_sequence_noise_rules'}
+            if config.get('noise_config'):
+                config_to_save['noise_config'] = config['noise_config']
+            write_json(config_file, config_to_save)
             print(f"Config file saved to {config_file}")
             
             # OPTIMIZATION: Do not load all processed seeds into a set.

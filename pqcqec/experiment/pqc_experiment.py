@@ -180,7 +180,8 @@ def pqc_experiment_custom_statevec_runner(
     num_qubits, num_gates, gate_blocks, pqc_blocks, 
     epochs, num_data, num_test, noise_dist=None,
     gate_dist=None, gpu=False, seed=0, batch_size=32,
-    return_fidelity=False, add_uncomputation=True
+    return_fidelity=False, add_uncomputation=True,
+    gate_sequence_noise_rules=None
 ):
     """
     Run the full experiment with custom Numba statevector backend.
@@ -269,11 +270,15 @@ def pqc_experiment_custom_statevec_runner(
 
     # Apply gate sequence noise transformations first to determine final circuit length
     # This is needed because gate sequence noise can change circuit length (e.g., HH → HXRZRX)
-    gate_sequence_noise_rules = {
-        ('h', 'h'): [('h', None), ('x', None), ('rz', [0.314]), ('rx', [0.314])],  # HH → HXRz(0.314)Rx(0.314)
-        ('x', 'x'): [('x', None), ('z', None), ('rz', [0.314]), ('rx', [0.314])],  # XX → XZRx(0.314)Rz(0.314)
-        ('z', 'z'): [('z', None), ('h', None), ('rz', [0.314]), ('rx', [0.314])],  # ZZ → ZHRx(0.314)Rz(0.314)
-    }
+    
+    # Use provided noise rules or fall back to default
+    if gate_sequence_noise_rules is None:
+        gate_sequence_noise_rules = {
+            ('h', 'h'): [('h', None), ('x', None), ('rz', [0.314]), ('rx', [0.314])],  # HH → HXRz(0.314)Rx(0.314)
+            ('x', 'x'): [('x', None), ('z', None), ('rz', [0.314]), ('rx', [0.314])],  # XX → XZRx(0.314)Rz(0.314)
+            ('z', 'z'): [('z', None), ('h', None), ('rz', [0.314]), ('rx', [0.314])],  # ZZ → ZHRx(0.314)Rz(0.314)
+        }
+    
     uncomp_circuit_ops_copy = copy.deepcopy(uncomp_circuit_ops)
     # Import the noise function to pre-compute the transformed circuit
     from ..noise.builder import apply_gate_sequence_noise
@@ -564,9 +569,9 @@ def pqc_experiment_blocks_custom_statevec_runner(
 
     print(f"\n{'='*80}")
     if use_individual_training:
-        print(f"Individual Block Training (Non-Cascading)")
+        print("Individual Block Training (Non-Cascading)")
     else:
-        print(f"Progressive Block-by-Block Training (Cascading)")
+        print("Progressive Block-by-Block Training (Cascading)")
     print(f"{'='*80}")
     print(f"Total PQC layers: {num_pqc_layers}")
     print(f"Epochs per block: {epochs_per_block}")
@@ -659,20 +664,20 @@ def pqc_experiment_blocks_custom_statevec_runner(
     
     print(f"\n{'='*80}")
     if use_individual_training:
-        print(f"Individual Block Training Complete!")
+        print("Individual Block Training Complete!")
     else:
-        print(f"Progressive Training Complete!")
+        print("Progressive Training Complete!")
     print(f"{'='*80}")
     
     # ========================================
     # Test the model
     # ========================================
-    print(f"\nGenerating test data...")
+    print("\nGenerating test data...")
     ideal_test_input_data = get_input_data(num_qubits, num_test, seed=jax_prng_keys[5])
     print(f'Ideal Test Data Shape: {ideal_test_input_data.shape}')
     
     # Generate noisy outputs using custom backend for comparison
-    print(f'Running circuit with noise using custom backend on test data...')
+    print('Running circuit with noise using custom backend on test data...')
     test_circuit_with_noise_ops = uncomp_circuit_ops.copy()
     noisy_test_ops = []
     for i, op in enumerate(test_circuit_with_noise_ops):
@@ -686,12 +691,12 @@ def pqc_experiment_blocks_custom_statevec_runner(
     noisy_state = jax_run_many_states(num_qubits, *noisy_test_jax_ops, ideal_test_input_data)
 
     # Ideal output state (noiseless, no PQC)
-    print(f'Generating ideal (noiseless) output states...')
+    print('Generating ideal (noiseless) output states...')
     base_test_jax_ops = build_jax_circuit(uncomp_circuit_ops)
     ideal_out_state = jax_run_many_states(num_qubits, *base_test_jax_ops, ideal_test_input_data)
 
     # Run full PQC model on test data
-    print(f'Running full trained PQC model on test data...')
+    print('Running full trained PQC model on test data...')
     pqc_state = model.run_model_batch(ideal_test_input_data)
     
     # Compute fidelities
@@ -699,7 +704,7 @@ def pqc_experiment_blocks_custom_statevec_runner(
     fidelity_ideal_noisy = batched_fidelity(ideal_out_state, noisy_state)
     fidelity_ideal_pqc = batched_fidelity(ideal_out_state, pqc_state)
 
-    print(f"\n=== Test Results ===")
+    print("\n=== Test Results ===")
     print(f"Fidelity (Ideal, Noisy): {jnp.mean(fidelity_ideal_noisy):.4e} ± {jnp.std(fidelity_ideal_noisy):.4e}")
     print(f"Fidelity (Ideal, PQC): {jnp.mean(fidelity_ideal_pqc):.4e} ± {jnp.std(fidelity_ideal_pqc):.4e}")
     

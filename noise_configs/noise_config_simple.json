@@ -1,0 +1,7 @@
+{
+  "rules": {
+    "h,h": [["h", null], ["x", null]],
+    "x,x": [["x", null], ["z", null]],
+    "z,z": [["z", null], ["h", null]]
+  }
+}
